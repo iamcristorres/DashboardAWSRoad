@@ -1,6 +1,6 @@
 {
   "name": "dashboard-gps",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Dashboard de seguimiento GPS - Intrared",
   "main": "main.js",
   "scripts": {
@@ -47,7 +47,8 @@
     "publish": {
       "provider": "github",
       "owner": "iamcristorres",
-      "repo": "DashboardAWSRoad"
+      "repo": "DashboardAWSRoad",
+      "releaseType": "release"
     }
   }
 }
