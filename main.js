@@ -115,7 +115,7 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 600,
-    title: 'Dashboard GPS',
+    title: `Dashboard GPS v${app.getVersion()}`,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -123,6 +123,13 @@ function createWindow() {
   });
 
   mainWindow.setMenu(null);
+
+  // La pagina tiene su propio <title>; lo sobreescribimos para mantener la version visible
+  mainWindow.on('page-title-updated', (event) => {
+    event.preventDefault();
+    mainWindow.setTitle(`Dashboard GPS v${app.getVersion()}`);
+  });
+
   mainWindow.loadURL(`http://127.0.0.1:${PORT}/testing_dashboard.html`);
 
   // Ajustar zoom para que el contenido se vea proporcional al navegador
