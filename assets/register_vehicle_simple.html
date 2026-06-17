@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registrar Vehículo Satrack - Simple</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input, select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        input:focus {
+            outline: none;
+            border-color: #4CAF50;
+        }
+        .btn {
+            background: #4CAF50;
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 20px;
+        }
+        .btn:hover {
+            background: #45a049;
+        }
+        .alert {
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .required {
+            color: red;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #eee;
+        }
+        h3 {
+            color: #666;
+            margin-bottom: 15px;
+        }
+        .json-output {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 400px;
+            overflow: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚗 Registrar Vehículo Satrack</h1>
+
+        <div id="result"></div>
+
+        <form id="vehicleForm">
+            <div class="section">
+                <h3>Información del Vehículo</h3>
+
+                <div class="form-group">
+                    <label>Placa <span class="required">*</span></label>
+                    <input type="text" id="plate" required maxlength="7" placeholder="ABC123">
+                </div>
+
+                <div class="form-group">
+                    <label>NIT Empresa <span class="required">*</span></label>
+                    <input type="text" id="companyNIT" required placeholder="900123456">
+                </div>
+
+                <div class="form-group">
+                    <label>Manifiesto <span class="required">*</span></label>
+                    <input type="text" id="manifest" required placeholder="MAN001">
+                </div>
+            </div>
+
+            <div class="section">
+                <h3>Información del Conductor</h3>
+
+                <div class="form-group">
+                    <label>ID Conductor <span class="required">*</span></label>
+                    <input type="text" id="driverId" required placeholder="CC1234567890">
+                </div>
+
+                <div class="form-group">
+                    <label>Nombre Conductor <span class="required">*</span></label>
+                    <input type="text" id="driverName" required placeholder="Juan Pérez">
+                </div>
+
+                <div class="form-group">
+                    <label>Teléfono Conductor <span class="required">*</span></label>
+                    <input type="tel" id="driverPhone" required placeholder="3001234567">
+                </div>
+            </div>
+
+            <div class="section">
+                <h3>Credenciales GPS Satrack</h3>
+
+                <div class="form-group">
+                    <label>GPS User (Client ID) <span class="required">*</span></label>
+                    <input type="text" id="gpsUser" required>
+                </div>
+
+                <div class="form-group">
+                    <label>GPS Password (Client Secret) <span class="required">*</span></label>
+                    <input type="password" id="gpsPassword" required>
+                </div>
+            </div>
+
+            <div class="section">
+                <h3>Configuración de Alertas</h3>
+
+                <div class="form-group">
+                    <label>Velocidad Máxima (km/h) <span class="required">*</span></label>
+                    <input type="number" id="maxSpeed" required value="80" min="1" max="200">
+                </div>
+
+                <div class="form-group">
+                    <label>Metros Corredor</label>
+                    <input type="number" id="corridorMeters" value="200" min="50" max="5000">
+                </div>
+            </div>
+
+            <div class="section">
+                <h3>Ruta Básica (Origen → Destino)</h3>
+
+                <h4>Origen</h4>
+                <div class="form-group">
+                    <label>Nombre Origen <span class="required">*</span></label>
+                    <input type="text" id="originName" required placeholder="Bogotá" value="Bogotá">
+                </div>
+
+                <div class="form-group">
+                    <label>Código Ciudad Origen <span class="required">*</span></label>
+                    <input type="text" id="originCode" required placeholder="BOG" value="BOG">
+                </div>
+
+                <div class="form-group">
+                    <label>Latitud Origen <span class="required">*</span></label>
+                    <input type="number" step="0.000001" id="originLat" required value="4.7110">
+                </div>
+
+                <div class="form-group">
+                    <label>Longitud Origen <span class="required">*</span></label>
+                    <input type="number" step="0.000001" id="originLng" required value="-74.0721">
+                </div>
+
+                <h4>Destino</h4>
+                <div class="form-group">
+                    <label>Nombre Destino <span class="required">*</span></label>
+                    <input type="text" id="destName" required placeholder="Medellín" value="Medellín">
+                </div>
+
+                <div class="form-group">
+                    <label>Código Ciudad Destino <span class="required">*</span></label>
+                    <input type="text" id="destCode" required placeholder="MDE" value="MDE">
+                </div>
+
+                <div class="form-group">
+                    <label>Latitud Destino <span class="required">*</span></label>
+                    <input type="number" step="0.000001" id="destLat" required value="6.2442">
+                </div>
+
+                <div class="form-group">
+                    <label>Longitud Destino <span class="required">*</span></label>
+                    <input type="number" step="0.000001" id="destLng" required value="-75.5812">
+                </div>
+
+                <div class="form-group">
+                    <label>Distancia Total (km) <span class="required">*</span></label>
+                    <input type="number" step="0.1" id="totalDistance" required value="420">
+                </div>
+
+                <div class="form-group">
+                    <label>Tiempo Estimado (horas) <span class="required">*</span></label>
+                    <input type="number" step="0.1" id="estimatedHours" required value="7">
+                </div>
+
+                <div class="form-group">
+                    <label>Nombre Carretera <span class="required">*</span></label>
+                    <input type="text" id="highwayName" required value="Autopista Medellín">
+                </div>
+
+                <div class="form-group">
+                    <label>Código Carretera <span class="required">*</span></label>
+                    <input type="text" id="highwayCode" required value="RN-50">
+                </div>
+            </div>
+
+            <button type="submit" class="btn">Registrar Vehículo</button>
+        </form>
+
+        <div id="jsonPreview" class="json-output" style="display:none; margin-top:20px;">
+            <h3>JSON que se enviará:</h3>
+            <pre id="jsonContent"></pre>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = '/api/v1';
+
+        function generateGeohash(lat, lng) {
+            // Geohash simple: formato "latitud_longitud"
+            return `${Math.floor(lat * 10000)}_${Math.floor(lng * 10000)}`;
+        }
+
+        document.getElementById('vehicleForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const plate = document.getElementById('plate').value.toUpperCase();
+            const companyNIT = document.getElementById('companyNIT').value;
+            const manifest = document.getElementById('manifest').value;
+            const driverId = document.getElementById('driverId').value;
+            const driverName = document.getElementById('driverName').value;
+            const driverPhone = document.getElementById('driverPhone').value;
+            const gpsUser = document.getElementById('gpsUser').value;
+            const gpsPassword = document.getElementById('gpsPassword').value;
+            const maxSpeed = parseInt(document.getElementById('maxSpeed').value);
+            const corridorMeters = parseInt(document.getElementById('corridorMeters').value);
+
+            // Origen
+            const originName = document.getElementById('originName').value;
+            const originCode = document.getElementById('originCode').value;
+            const originLat = parseFloat(document.getElementById('originLat').value);
+            const originLng = parseFloat(document.getElementById('originLng').value);
+
+            // Destino
+            const destName = document.getElementById('destName').value;
+            const destCode = document.getElementById('destCode').value;
+            const destLat = parseFloat(document.getElementById('destLat').value);
+            const destLng = parseFloat(document.getElementById('destLng').value);
+
+            // Ruta
+            const totalDistance = parseFloat(document.getElementById('totalDistance').value);
+            const estimatedHours = parseFloat(document.getElementById('estimatedHours').value);
+            const highwayName = document.getElementById('highwayName').value;
+            const highwayCode = document.getElementById('highwayCode').value;
+
+            const payload = {
+                vehicleInfo: {
+                    Plate: plate,
+                    CompanyNIT: companyNIT,
+                    Manifest: manifest,
+                    OperatorCode: "830059699",
+                    OperatorName: "SATRACK",
+                    Data: {
+                        plate: plate,
+                        companyNIT: companyNIT,
+                        manifest: manifest,
+                        driverId: driverId,
+                        driverName: driverName,
+                        driverPhone: driverPhone,
+                        operatorCode: "830059699",
+                        operatorName: "SATRACK",
+                        gpsUser: gpsUser,
+                        gpsPassword: gpsPassword,
+                        gpsStatus: false,
+                        gpsMessage: "Sin conexión inicial",
+                        maxSpeed: maxSpeed,
+                        alertOnDeviation: true,
+                        corridorMeters: corridorMeters,
+                        maxConsecutiveDeviations: 3,
+                        validateCheckpoints: false,
+                        validateLoadingTimes: true,
+                        deactivationTime: 4200,
+                        status: true,
+                        createdBy: "dashboard",
+                        notes: null
+                    }
+                },
+                routes: [{
+                    active: true,
+                    AssignedAt: new Date().toISOString(),
+                    StartedAt: null,
+                    CompletedAt: null,
+                    Data: {
+                        routeId: `ROUTE_${plate}_${manifest}`,
+                        routeName: `${originName} → ${destName}`,
+                        origin: {
+                            name: originName,
+                            code: originCode,
+                            latitude: originLat,
+                            longitude: originLng,
+                            geohash: generateGeohash(originLat, originLng)
+                        },
+                        destination: {
+                            name: destName,
+                            code: destCode,
+                            latitude: destLat,
+                            longitude: destLng,
+                            geohash: generateGeohash(destLat, destLng)
+                        },
+                        highway: {
+                            name: highwayName,
+                            code: highwayCode
+                        },
+                        totalDistance: totalDistance,
+                        estimatedTime: Math.floor(estimatedHours * 3600),
+                        hasGPXRoute: false,
+                        gpxSegments: 0,
+                        checkpoints: [
+                            {
+                                id: `CP_ORIGIN_${Date.now()}`,
+                                site: originName,
+                                latitude: originLat,
+                                longitude: originLng,
+                                radius: 500,
+                                order: 1,
+                                controlType: "ORIGIN",
+                                required: true,
+                                notify: true,
+                                expectedCost: null,
+                                reportApproach: false,
+                                reportEntry: true,
+                                reportExit: false,
+                                reportPassDateTime: true
+                            },
+                            {
+                                id: `CP_DEST_${Date.now() + 1}`,
+                                site: destName,
+                                latitude: destLat,
+                                longitude: destLng,
+                                radius: 500,
+                                order: 2,
+                                controlType: "DESTINATION",
+                                required: true,
+                                notify: true,
+                                expectedCost: null,
+                                reportApproach: false,
+                                reportEntry: true,
+                                reportExit: false,
+                                reportPassDateTime: true
+                            }
+                        ],
+                        driverId: driverId,
+                        driverName: driverName
+                    }
+                }]
+            };
+
+            // Mostrar JSON
+            document.getElementById('jsonContent').textContent = JSON.stringify(payload, null, 2);
+            document.getElementById('jsonPreview').style.display = 'block';
+
+            // Enviar
+            document.getElementById('result').innerHTML = '<div class="alert alert-success">⏳ Enviando...</div>';
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/vehicles/track`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    document.getElementById('result').innerHTML = `
+                        <div class="alert alert-success">
+                            <h3>✅ Vehículo Registrado Exitosamente</h3>
+                            <p>Placa: ${plate}</p>
+                            <p>Manifiesto: ${manifest}</p>
+                            <p>Próximo paso: Ejecutar Lambda SatrackGPS</p>
+                        </div>
+                    `;
+                } else {
+                    document.getElementById('result').innerHTML = `
+                        <div class="alert alert-error">
+                            <h3>❌ Error al Registrar</h3>
+                            <pre>${JSON.stringify(result, null, 2)}</pre>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                document.getElementById('result').innerHTML = `
+                    <div class="alert alert-error">
+                        <h3>❌ Error de Conexión</h3>
+                        <p>${error.message}</p>
+                    </div>
+                `;
+            }
+        });
+    </script>
+</body>
+</html>

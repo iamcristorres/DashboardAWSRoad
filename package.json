@@ -1,0 +1,53 @@
+{
+  "name": "dashboard-gps",
+  "version": "1.0.0",
+  "description": "Dashboard de seguimiento GPS - Intrared",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win",
+    "release": "electron-builder --win --publish always"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/iamcristorres/DashboardAWSRoad.git"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.0"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.intrared.dashboard-gps",
+    "productName": "Dashboard GPS",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js"
+    ],
+    "extraResources": [
+      {
+        "from": "assets",
+        "to": "assets"
+      }
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Dashboard GPS"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "iamcristorres",
+      "repo": "DashboardAWSRoad"
+    }
+  }
+}
