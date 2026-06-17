@@ -1393,7 +1393,7 @@
 
         /* Modal de detalles de alerta - z-index más alto para aparecer sobre otros modales */
         #mapAlertDetailModal {
-            z-index: 10100 !important;
+            z-index: 1000100 !important;
             background: rgba(15, 23, 42, 0.8);
         }
 
@@ -2230,6 +2230,35 @@
         .alert-status-badge.pending {
             background: rgba(245, 158, 11, 0.15);
             color: #d97706;
+        }
+
+        .detail-row {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(6, 182, 212, 0.1);
+        }
+
+        .detail-row:last-child {
+            border-bottom: none;
+        }
+
+        .detail-label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            color: rgba(15, 23, 42, 0.5);
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .detail-value {
+            font-size: 14px;
+            color: rgba(15, 23, 42, 0.9);
+            line-height: 1.5;
         }
 
         .alert-card-body {
@@ -4527,6 +4556,189 @@
                 <button onclick="closeCompanyDetailModal()" class="btn btn-secondary">
                     Cerrar
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Histórico Completo (GPS + Alertas + Checkpoints) -->
+    <div id="fullHistoryModal" class="modal-overlay" onclick="event.target === this && closeFullHistoryModal()">
+        <div class="modal-content" style="max-width: 1300px;">
+            <button onclick="closeFullHistoryModal()" style="position: absolute; top: 16px; right: 16px; background: none; border: none; cursor: pointer; padding: 8px; border-radius: 8px; transition: background 0.2s;" onmouseover="this.style.background='rgba(0,0,0,0.05)'" onmouseout="this.style.background='transparent'">
+                <i data-lucide="x" style="width: 24px; height: 24px; color: rgba(15, 23, 42, 0.6);"></i>
+            </button>
+
+            <h2 style="margin-bottom: 20px; font-size: 22px; font-weight: 700; color: rgba(15, 23, 42, 0.9); display: flex; align-items: center; gap: 12px;">
+                <i data-lucide="route" style="width: 26px; height: 26px; color: #7c3aed;"></i>
+                Histórico Completo del Viaje
+            </h2>
+
+            <div class="grid-4" style="gap: 12px; margin-bottom: 20px;">
+                <div class="stat-card">
+                    <div class="stat-icon" style="background: #8b5cf6;"><i data-lucide="map-pin"></i></div>
+                    <div class="stat-content">
+                        <div class="stat-value" id="historyTotalLocations">0</div>
+                        <div class="stat-label">Posiciones GPS</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon" style="background: #f97316;"><i data-lucide="alert-triangle"></i></div>
+                    <div class="stat-content">
+                        <div class="stat-value" id="historyTotalAlerts">0</div>
+                        <div class="stat-label">Alertas</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon" style="background: #10b981;"><i data-lucide="flag"></i></div>
+                    <div class="stat-content">
+                        <div class="stat-value" id="historyTotalCheckpoints">—</div>
+                        <div class="stat-label">Puntos de Control</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon" style="background: #06b6d4;"><i data-lucide="route"></i></div>
+                    <div class="stat-content">
+                        <div class="stat-value" id="historyDistance">0 km</div>
+                        <div class="stat-label">Distancia Recorrida</div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="historyMapContainer" style="height: 380px; border-radius: 16px; overflow: hidden; border: 1px solid rgba(6, 182, 212, 0.2); margin-bottom: 20px;"></div>
+
+            <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px;">
+                <div style="position: relative; flex: 1; min-width: 220px;">
+                    <i data-lucide="search" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; color: rgba(15, 23, 42, 0.4);"></i>
+                    <input type="text" id="historyLocationSearch" placeholder="Buscar por hora, ubicación, tipo..." oninput="filterHistoryLocations()" style="width: 100%; padding: 8px 8px 8px 32px; border: 1px solid rgba(6, 182, 212, 0.2); border-radius: 8px; font-size: 13px;">
+                </div>
+                <select id="historyLocationsPerPage" onchange="changeHistoryLocationsPerPage()" style="padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(6, 182, 212, 0.2); font-size: 13px;">
+                    <option value="25">25</option>
+                    <option value="50" selected>50</option>
+                    <option value="100">100</option>
+                    <option value="200">200</option>
+                </select>
+                <button onclick="exportHistoryToCSV()" class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px; font-size: 13px;">
+                    <i data-lucide="download" style="width: 14px; height: 14px;"></i> Exportar CSV
+                </button>
+            </div>
+
+            <div id="historyLocationsList" style="max-height: 360px; overflow-y: auto; border: 1px solid rgba(6, 182, 212, 0.1); border-radius: 12px;"></div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
+                <span id="historyLocationPageInfo" style="font-size: 12px; color: rgba(15, 23, 42, 0.6);">0 registros</span>
+                <div style="display: flex; gap: 8px;">
+                    <button id="historyLocationPrevBtn" onclick="prevHistoryLocationPage()" class="btn btn-secondary" style="font-size: 12px; padding: 6px 14px;">Anterior</button>
+                    <button id="historyLocationNextBtn" onclick="nextHistoryLocationPage()" class="btn btn-secondary" style="font-size: 12px; padding: 6px 14px;">Siguiente</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Todas las Alertas del Viaje -->
+    <div id="fullAlertsModal" class="modal-overlay" onclick="event.target === this && closeFullAlertsModal()">
+        <div class="modal-content" style="max-width: 1100px;">
+            <button onclick="closeFullAlertsModal()" style="position: absolute; top: 16px; right: 16px; background: none; border: none; cursor: pointer; padding: 8px; border-radius: 8px; transition: background 0.2s;" onmouseover="this.style.background='rgba(0,0,0,0.05)'" onmouseout="this.style.background='transparent'">
+                <i data-lucide="x" style="width: 24px; height: 24px; color: rgba(15, 23, 42, 0.6);"></i>
+            </button>
+
+            <h2 style="margin-bottom: 20px; font-size: 22px; font-weight: 700; color: rgba(15, 23, 42, 0.9); display: flex; align-items: center; gap: 12px;">
+                <i data-lucide="list-filter" style="width: 26px; height: 26px; color: #f97316;"></i>
+                Todas las Alertas del Viaje
+            </h2>
+
+            <div class="grid-4" style="gap: 12px; margin-bottom: 20px;">
+                <div class="stat-card">
+                    <div class="stat-icon" style="background: linear-gradient(135deg, #ef4444, #dc2626);"><i data-lucide="alert-octagon"></i></div>
+                    <div class="stat-content">
+                        <div class="stat-value" id="modalAlertStatCritical">0</div>
+                        <div class="stat-label">Críticas</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon" style="background: linear-gradient(135deg, #f59e0b, #d97706);"><i data-lucide="alert-triangle"></i></div>
+                    <div class="stat-content">
+                        <div class="stat-value" id="modalAlertStatHigh">0</div>
+                        <div class="stat-label">Moderadas</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon" style="background: linear-gradient(135deg, #3b82f6, #2563eb);"><i data-lucide="info"></i></div>
+                    <div class="stat-content">
+                        <div class="stat-value" id="modalAlertStatMedium">0</div>
+                        <div class="stat-label">Preventivas</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon" style="background: linear-gradient(135deg, #10b981, #059669);"><i data-lucide="check-circle"></i></div>
+                    <div class="stat-content">
+                        <div class="stat-value" id="modalAlertStatResolved">0</div>
+                        <div class="stat-label">Resueltas</div>
+                    </div>
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; padding: 12px; background: rgba(6, 182, 212, 0.05); border-radius: 12px;">
+                <div style="position: relative; flex: 1; min-width: 220px;">
+                    <i data-lucide="search" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; color: rgba(15, 23, 42, 0.4);"></i>
+                    <input type="text" id="modalAlertSearch" placeholder="Buscar en alertas..." oninput="filterModalAlerts()" style="width: 100%; padding: 8px 8px 8px 32px; border: 1px solid rgba(6, 182, 212, 0.2); border-radius: 8px; font-size: 13px;">
+                </div>
+                <select id="modalAlertSeverityFilter" multiple style="min-width: 180px; font-size: 12px; padding: 6px;">
+                    <option value="CRITICAL">Crítica</option>
+                    <option value="HIGH">Alta</option>
+                    <option value="MEDIUM">Media</option>
+                    <option value="LOW">Baja</option>
+                    <option value="INFO">Info</option>
+                </select>
+                <select id="modalAlertStatusFilter" onchange="filterModalAlerts()" style="min-width: 140px; font-size: 12px; padding: 6px;">
+                    <option value="">Todos</option>
+                    <option value="pending">Pendientes</option>
+                    <option value="resolved">Resueltas</option>
+                </select>
+                <button onclick="exportAlertsToCSV()" class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px; font-size: 13px;">
+                    <i data-lucide="download" style="width: 14px; height: 14px;"></i> Exportar CSV
+                </button>
+            </div>
+
+            <div id="modalAlertsList" style="max-height: 420px; overflow-y: auto; margin-bottom: 16px;"></div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 12px; color: rgba(15, 23, 42, 0.6);">Por página:</span>
+                    <select id="modalAlertsPerPage" onchange="changeModalAlertsPerPage()" style="padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(6, 182, 212, 0.2); font-size: 12px;">
+                        <option value="10">10</option>
+                        <option value="20" selected>20</option>
+                        <option value="50">50</option>
+                    </select>
+                </div>
+                <span id="modalAlertPageInfo" style="font-size: 12px; color: rgba(15, 23, 42, 0.6);">0 alertas</span>
+                <div style="display: flex; gap: 8px;">
+                    <button id="modalAlertPrevBtn" onclick="prevModalAlertPage()" class="btn btn-secondary" style="font-size: 12px; padding: 6px 14px;">Anterior</button>
+                    <button id="modalAlertNextBtn" onclick="nextModalAlertPage()" class="btn btn-secondary" style="font-size: 12px; padding: 6px 14px;">Siguiente</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Detalle de Alerta (desde mapa / lista de alertas) -->
+    <div id="mapAlertDetailModal" class="modal-overlay" onclick="event.target === this && closeMapAlertDetailModal()">
+        <div class="modal-content" style="max-width: 620px;">
+            <button onclick="closeMapAlertDetailModal()" style="position: absolute; top: 16px; right: 16px; background: none; border: none; cursor: pointer; padding: 8px; border-radius: 8px; transition: background 0.2s;" onmouseover="this.style.background='rgba(0,0,0,0.05)'" onmouseout="this.style.background='transparent'">
+                <i data-lucide="x" style="width: 22px; height: 22px; color: rgba(15, 23, 42, 0.6);"></i>
+            </button>
+
+            <div id="mapAlertDetailContent"></div>
+
+            <div style="margin-top: 24px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+                <div style="display: flex; gap: 10px;">
+                    <button id="mapToggleResolvedBtn" class="btn btn-success" onclick="toggleMapAlertResolved()">
+                        <i data-lucide="check-circle" style="width: 16px; height: 16px; display: inline-block; margin-right: 6px;"></i>
+                        <span id="mapToggleResolvedText">Marcar como Resuelta</span>
+                    </button>
+                    <button class="btn btn-secondary" onclick="focusOnMapAlert()">
+                        <i data-lucide="map-pin" style="width: 16px; height: 16px; display: inline-block; margin-right: 6px;"></i>
+                        Centrar en Mapa
+                    </button>
+                </div>
+                <button class="btn btn-secondary" onclick="closeMapAlertDetailModal()">Cerrar</button>
             </div>
         </div>
     </div>
