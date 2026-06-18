@@ -4562,7 +4562,7 @@
 
     <!-- Modal de Histórico Completo (GPS + Alertas + Checkpoints) -->
     <div id="fullHistoryModal" class="modal-overlay" onclick="event.target === this && closeFullHistoryModal()">
-        <div class="modal-content" style="max-width: 1300px;">
+        <div class="modal-content" style="max-width: 1600px; max-height: 94vh;">
             <button onclick="closeFullHistoryModal()" style="position: absolute; top: 16px; right: 16px; background: none; border: none; cursor: pointer; padding: 8px; border-radius: 8px; transition: background 0.2s;" onmouseover="this.style.background='rgba(0,0,0,0.05)'" onmouseout="this.style.background='transparent'">
                 <i data-lucide="x" style="width: 24px; height: 24px; color: rgba(15, 23, 42, 0.6);"></i>
             </button>
@@ -4603,7 +4603,7 @@
                 </div>
             </div>
 
-            <div id="historyMapContainer" style="height: 380px; border-radius: 16px; overflow: hidden; border: 1px solid rgba(6, 182, 212, 0.2); margin-bottom: 20px;"></div>
+            <div id="historyMapContainer" style="height: 460px; border-radius: 16px; overflow: hidden; border: 1px solid rgba(6, 182, 212, 0.2); margin-bottom: 20px;"></div>
 
             <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px;">
                 <div style="position: relative; flex: 1; min-width: 220px;">
@@ -4621,7 +4621,7 @@
                 </button>
             </div>
 
-            <div id="historyLocationsList" style="max-height: 360px; overflow-y: auto; border: 1px solid rgba(6, 182, 212, 0.1); border-radius: 12px;"></div>
+            <div id="historyLocationsList" style="max-height: 480px; overflow-y: auto; border: 1px solid rgba(6, 182, 212, 0.1); border-radius: 12px;"></div>
 
             <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
                 <span id="historyLocationPageInfo" style="font-size: 12px; color: rgba(15, 23, 42, 0.6);">0 registros</span>
@@ -10475,6 +10475,48 @@
             return R * c;
         }
 
+        // Escapa caracteres HTML (NotificationAVL360ErrorMsg puede contener fragmentos
+        // de la respuesta HTTP del webhook, hasta 300 caracteres sin sanitizar)
+        function escapeHtml(str) {
+            return String(str).replace(/[&<>"']/g, function(c) {
+                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+            });
+        }
+
+        // Determina el estado de la notificacion a AVL360 para una alerta (texto, color, detalle)
+        function getNotificationAvl360Estado(alert) {
+            if (alert.NotificationAVL360 === true) {
+                var horaEnvio = alert.NotificationAVL360SentAt
+                    ? alert.NotificationAVL360SentAt.replace('T', ' ').substring(0, 16)
+                    : '';
+                return {
+                    texto: 'Enviado',
+                    color: '#059669',
+                    detalle: 'Enviado a AVL360' + (horaEnvio ? (': ' + horaEnvio) : '')
+                };
+            }
+            if (alert.NotificationAVL360 === false) {
+                var motivo = alert.NotificationAVL360ErrorMsg;
+                if (!motivo) {
+                    var sc = alert.NotificationAVL360StatusCode;
+                    motivo = (sc === 0) ? 'Timeout / sin respuesta' : (sc != null ? 'Error HTTP ' + sc : 'No se pudo enviar');
+                }
+                var horaIntento = alert.NotificationAVL360AttemptedAt
+                    ? alert.NotificationAVL360AttemptedAt.replace('T', ' ').substring(0, 16)
+                    : '';
+                return {
+                    texto: motivo,
+                    color: '#dc2626',
+                    detalle: 'No se envio a AVL360' + (horaIntento ? (' (' + horaIntento + ')') : '')
+                };
+            }
+            return {
+                texto: 'Sin notificacion',
+                color: '#94a3b8',
+                detalle: 'No hay registro de intento de notificacion a AVL360 para este evento'
+            };
+        }
+
         // Construir y filtrar el historial unificado (GPS + Alertas)
         function filterHistoryLocations() {
             var positions = window._historyPositions || [];
@@ -10501,6 +10543,7 @@
 
             alerts.forEach(function(alert) {
                 var esDetencion = (alert.EventType === 'DETENTION');
+                var notifEstado = getNotificationAvl360Estado(alert);
                 rows.push({
                     tipo: 'Alerta',
                     eventoKey:         alert.EventType || '',
@@ -10513,7 +10556,9 @@
                     tierLabel: getSeverityLabel(alert.Severity),
                     ubicacion: alert.LocationName || '',
                     proveedor: alert.Provider || '',
-                    estado: alert.Resolved ? 'Resuelta' : 'Pendiente',
+                    estado: notifEstado.texto,
+                    estadoColor: notifEstado.color,
+                    estadoTitle: notifEstado.detalle,
                     lat: alert.Latitude,
                     lon: alert.Longitude
                 });
@@ -10572,7 +10617,7 @@
                 '<th style="padding:7px 8px;text-align:right;font-weight:600;color:rgba(15,23,42,0.5);font-size:10px;">VALOR</th>' +
                 '<th style="padding:7px 8px;text-align:left;font-weight:600;color:rgba(15,23,42,0.5);font-size:10px;">TIER</th>' +
                 '<th style="padding:7px 8px;text-align:left;font-weight:600;color:rgba(15,23,42,0.5);font-size:10px;">UBICACION</th>' +
-                '<th style="padding:7px 8px;text-align:left;font-weight:600;color:rgba(15,23,42,0.5);font-size:10px;">ESTADO</th>' +
+                '<th style="padding:7px 8px;text-align:left;font-weight:600;color:rgba(15,23,42,0.5);font-size:10px;">NOTIF. AVL360</th>' +
                 '</tr></thead><tbody>';
 
             pageRows.forEach(function(row, i) {
@@ -10609,7 +10654,7 @@
                     ? '<span style="background:' + getSeverityColor(row.severidad) + ';color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;">' + row.tierLabel + '</span>'
                     : '—';
                 var estadoBadge = row.estado
-                    ? '<span style="color:' + (row.estado === 'Resuelta' ? '#059669' : '#dc2626') + ';font-weight:600;">' + row.estado + '</span>'
+                    ? '<span title="' + escapeHtml(row.estadoTitle || '') + '" style="color:' + (row.estadoColor || '#64748b') + ';font-weight:600;">' + escapeHtml(row.estado) + '</span>'
                     : '—';
 
                 html += '<tr onclick="focusHistoryLocation(' + globalIdx + ')"' +
@@ -10623,7 +10668,7 @@
                     '<td style="padding:6px 8px;text-align:right;">' + velCell + '</td>' +
                     '<td style="padding:6px 8px;">' + tierBadge + '</td>' +
                     '<td style="padding:6px 8px;font-size:11px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + row.ubicacion + '">' + (row.ubicacion || '—') + '</td>' +
-                    '<td style="padding:6px 8px;">' + estadoBadge + '</td>' +
+                    '<td style="padding:6px 8px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + estadoBadge + '</td>' +
                     '</tr>';
             });
 
@@ -10699,7 +10744,7 @@
                 return;
             }
 
-            var csv = 'Num,Tipo,Hora,Velocidad (km/h),Tier,Ubicacion,Proveedor,Estado,Latitud,Longitud\n';
+            var csv = 'Num,Tipo,Hora,Velocidad (km/h),Tier,Ubicacion,Proveedor,Notificacion AVL360,Latitud,Longitud\n';
 
             // Orden cronologico (mas antiguo primero)
             var rows = [...filteredHistoryLocations].reverse();
@@ -10707,9 +10752,10 @@
                 var vel = (row.velocidad != null) ? row.velocidad : '';
                 var ubi = (row.ubicacion || '').replace(/"/g, '""');
                 var prov = (row.proveedor || '').replace(/"/g, '""');
+                var estado = (row.estado || '').replace(/"/g, '""');
                 csv += (idx + 1) + ',"' + row.tipo + '","' + (row.hora || '') + '","' + vel + '","' +
                     (row.tierLabel || '') + '","' + ubi + '","' + prov + '","' +
-                    (row.estado || '') + '",' + (row.lat || '') + ',' + (row.lon || '') + '\n';
+                    estado + '",' + (row.lat || '') + ',' + (row.lon || '') + '\n';
             });
 
             var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
