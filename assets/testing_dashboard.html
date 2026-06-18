@@ -6399,6 +6399,7 @@
             currentMapTripCheckpoints  = trip.checkpoints || [];
             currentMapTripRouteGeometry = trip.routeGeometry || null;
             currentMapTripLineWeight    = trip.mapRouteLineWeight || 12;
+            currentMapTripEventParams  = trip.eventParameterizations || [];
 
             console.log('[DASHBOARD] openTripInMap:', {
                 plate, manifest, vehicleNumericId,
@@ -8268,6 +8269,7 @@
         let currentMapTripCheckpoints = [];
         let currentMapTripRouteGeometry = null;
         let currentMapTripLineWeight = 12;
+        let currentMapTripEventParams = [];
 
         let map = null;
         let mapLayers = {
@@ -9605,17 +9607,9 @@
 
                 // Insignia de notificacion AVL360
                 let notifBadgeHtml = '';
-                if (alert.NotificationAVL360 === true) {
-                    const hora = alert.NotificationAVL360SentAt
-                        ? alert.NotificationAVL360SentAt.replace('T', ' ').substring(0, 16)
-                        : '';
-                    notifBadgeHtml = `<span style="background:rgba(16,185,129,0.12);color:#059669;border:1px solid rgba(16,185,129,0.3);padding:2px 6px;border-radius:4px;font-size:9px;margin-left:4px;">AVL360${hora ? ': ' + hora : ': Enviado'}</span>`;
-                } else if (alert.NotificationAVL360 === false) {
-                    const horaIntento = (alert.NotificationAVL360AttemptedAt || '')
-                        .replace('T', ' ').substring(0, 16);
-                    const sc = alert.NotificationAVL360StatusCode;
-                    const scStr = sc !== undefined && sc !== null ? (sc === 0 ? ' Timeout' : ' ' + sc) : '';
-                    notifBadgeHtml = `<span style="background:rgba(239,68,68,0.12);color:#dc2626;border:1px solid rgba(239,68,68,0.3);padding:2px 6px;border-radius:4px;font-size:9px;margin-left:4px;">AVL360: Error${scStr}${horaIntento ? ' · ' + horaIntento : ''}</span>`;
+                if (alert.NotificationAVL360 === true || alert.NotificationAVL360 === false) {
+                    const notifEstado = getNotificationAvl360Estado(alert);
+                    notifBadgeHtml = `<span title="${escapeHtml(notifEstado.detalle)}" style="background:${notifEstado.bg};color:${notifEstado.color};border:1px solid ${notifEstado.border};padding:2px 6px;border-radius:4px;font-size:9px;margin-left:4px;">AVL360: ${escapeHtml(notifEstado.texto)}</span>`;
                 }
 
                 html += `
@@ -9790,9 +9784,23 @@
 
             // Notificacion a AVL360
             if (alert.NotificationAVL360 !== undefined && alert.NotificationAVL360 !== null) {
-                const notifOk    = alert.NotificationAVL360 === true;
-                const notifColor = notifOk ? '#059669' : '#dc2626';
-                const notifLabel = notifOk ? 'Enviado correctamente' : 'Error al enviar';
+                const notifOk = alert.NotificationAVL360 === true;
+                const tieneIntentoReal = !!(alert.NotificationAVL360ErrorMsg || alert.NotificationAVL360StatusCode != null || alert.NotificationAVL360AttemptedAt);
+                const disponibleDesde = (!notifOk && !tieneIntentoReal) ? getProximoEnvioDisponible(alert) : null;
+                let notifColor, notifLabel;
+                if (notifOk) {
+                    notifColor = '#059669';
+                    notifLabel = 'Enviado correctamente';
+                } else if (tieneIntentoReal) {
+                    notifColor = '#dc2626';
+                    notifLabel = 'Error al enviar';
+                } else if (disponibleDesde) {
+                    notifColor = '#d97706';
+                    notifLabel = 'En espera (tiempo minimo entre notificaciones del tier)';
+                } else {
+                    notifColor = '#64748b';
+                    notifLabel = 'Sin notificacion enviada';
+                }
                 const sentAt     = alert.NotificationAVL360SentAt || alert.NotificationAVL360AttemptedAt || null;
                 const statusCode = alert.NotificationAVL360StatusCode;
                 const errorMsg   = alert.NotificationAVL360ErrorMsg || null;
@@ -9802,6 +9810,12 @@
                 const rawPayload = alert.NotificationAVL360Payload || null;
 
                 let notifExtra = '';
+                if (disponibleDesde) {
+                    const fechaDisponible = disponibleDesde.toLocaleString('es-CO', {
+                        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+                    });
+                    notifExtra += `<br><span style="font-size:12px;color:#d97706;font-weight:500;">Envio disponible a partir de: ${fechaDisponible}</span>`;
+                }
                 if (sentAt) {
                     notifExtra += `<br><span style="font-size:12px;color:rgba(15,23,42,0.6);font-weight:400;">${notifOk ? 'Enviado: ' : 'Intentado: '}${sentAt}</span>`;
                 }
@@ -9811,7 +9825,7 @@
                     notifExtra += `<br><span style="font-size:12px;color:${scColor};font-weight:500;">Codigo: ${scLabel}</span>`;
                 }
                 if (!notifOk && errorMsg) {
-                    notifExtra += `<br><span style="font-size:11px;color:rgba(15,23,42,0.55);font-weight:400;word-break:break-word;">${errorMsg}</span>`;
+                    notifExtra += `<br><span style="font-size:11px;color:rgba(15,23,42,0.55);font-weight:400;word-break:break-word;">${escapeHtml(errorMsg)}</span>`;
                 }
 
                 // Seccion colapsable con detalle del envio
@@ -10483,6 +10497,40 @@
             });
         }
 
+        // Minutos de cooldown configurados para event_key+tier_id en el viaje actual
+        // (Data.eventParameterizations del ROUTE#, ver currentMapTripEventParams)
+        function getNotifyAfterMinutes(eventType, tierId) {
+            var ev = (currentMapTripEventParams || []).find(function(e) { return e.event_key === eventType; });
+            if (!ev) return 0;
+            var tier = (ev.tiers || []).find(function(t) { return t.tier_id === tierId; });
+            return tier ? Number(tier.notify_after_minutes || 0) : 0;
+        }
+
+        // Si una alerta no registra intento real de envio, calcula desde cuando vuelve
+        // a estar disponible el envio, en base al cooldown del tier (notify_after_minutes)
+        // y la ultima notificacion exitosa del mismo event_key+tier_id. Las lambdas omiten
+        // el intento (sin tocar NotificationAVL360AttemptedAt/StatusCode/ErrorMsg) cuando
+        // existe una notificacion reciente del mismo tier, para no saturar con alertas repetidas.
+        function getProximoEnvioDisponible(alert) {
+            var notifyAfterMin = getNotifyAfterMinutes(alert.EventType, alert.TierId);
+            if (!notifyAfterMin) return null;
+
+            var alertTime = new Date(alert.CreatedAt).getTime();
+            if (isNaN(alertTime)) return null;
+
+            var ultimaEnviada = null;
+            (allMapAlertsData || []).forEach(function(a) {
+                if (a.EventType !== alert.EventType || a.TierId !== alert.TierId) return;
+                if (a.NotificationAVL360 !== true || !a.NotificationAVL360SentAt) return;
+                var t = new Date(a.NotificationAVL360SentAt).getTime();
+                if (isNaN(t) || t > alertTime) return;
+                if (ultimaEnviada === null || t > ultimaEnviada) ultimaEnviada = t;
+            });
+
+            if (ultimaEnviada === null) return null;
+            return new Date(ultimaEnviada + notifyAfterMin * 60000);
+        }
+
         // Determina el estado de la notificacion a AVL360 para una alerta (texto, color, detalle)
         function getNotificationAvl360Estado(alert) {
             if (alert.NotificationAVL360 === true) {
@@ -10492,27 +10540,61 @@
                 return {
                     texto: 'Enviado',
                     color: '#059669',
+                    bg: 'rgba(16,185,129,0.12)',
+                    border: 'rgba(16,185,129,0.3)',
                     detalle: 'Enviado a AVL360' + (horaEnvio ? (': ' + horaEnvio) : '')
                 };
             }
             if (alert.NotificationAVL360 === false) {
-                var motivo = alert.NotificationAVL360ErrorMsg;
-                if (!motivo) {
-                    var sc = alert.NotificationAVL360StatusCode;
-                    motivo = (sc === 0) ? 'Timeout / sin respuesta' : (sc != null ? 'Error HTTP ' + sc : 'No se pudo enviar');
+                var tieneIntentoReal = !!(alert.NotificationAVL360ErrorMsg || alert.NotificationAVL360StatusCode != null || alert.NotificationAVL360AttemptedAt);
+
+                if (tieneIntentoReal) {
+                    var motivo = alert.NotificationAVL360ErrorMsg;
+                    if (!motivo) {
+                        var sc = alert.NotificationAVL360StatusCode;
+                        motivo = (sc === 0) ? 'Timeout / sin respuesta' : (sc != null ? 'Error HTTP ' + sc : 'No se pudo enviar');
+                    }
+                    var horaIntento = alert.NotificationAVL360AttemptedAt
+                        ? alert.NotificationAVL360AttemptedAt.replace('T', ' ').substring(0, 16)
+                        : '';
+                    return {
+                        texto: motivo,
+                        color: '#dc2626',
+                        bg: 'rgba(239,68,68,0.12)',
+                        border: 'rgba(239,68,68,0.3)',
+                        detalle: 'No se envio a AVL360' + (horaIntento ? (' (' + horaIntento + ')') : '')
+                    };
                 }
-                var horaIntento = alert.NotificationAVL360AttemptedAt
-                    ? alert.NotificationAVL360AttemptedAt.replace('T', ' ').substring(0, 16)
-                    : '';
+
+                // Sin intento real registrado: lo mas probable es que la lambda haya omitido
+                // el envio por el cooldown configurado en el tier (notify_after_minutes)
+                var disponibleDesde = getProximoEnvioDisponible(alert);
+                if (disponibleDesde) {
+                    var fechaStr = disponibleDesde.toLocaleString('es-CO', {
+                        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+                    });
+                    return {
+                        texto: 'Envio disponible: ' + fechaStr,
+                        color: '#d97706',
+                        bg: 'rgba(217,119,6,0.12)',
+                        border: 'rgba(217,119,6,0.3)',
+                        detalle: 'En espera por el tiempo minimo entre notificaciones del mismo tier (evita saturar con alertas repetidas). Envio disponible a partir de: ' + fechaStr
+                    };
+                }
+
                 return {
-                    texto: motivo,
-                    color: '#dc2626',
-                    detalle: 'No se envio a AVL360' + (horaIntento ? (' (' + horaIntento + ')') : '')
+                    texto: 'Sin notificacion',
+                    color: '#94a3b8',
+                    bg: 'rgba(148,163,184,0.12)',
+                    border: 'rgba(148,163,184,0.3)',
+                    detalle: 'No se intento el envio a AVL360 para este evento'
                 };
             }
             return {
                 texto: 'Sin notificacion',
                 color: '#94a3b8',
+                bg: 'rgba(148,163,184,0.12)',
+                border: 'rgba(148,163,184,0.3)',
                 detalle: 'No hay registro de intento de notificacion a AVL360 para este evento'
             };
         }
@@ -17337,6 +17419,7 @@
             currentMapTripCheckpoints  = trip.checkpoints || [];
             currentMapTripRouteGeometry = trip.routeGeometry || null;
             currentMapTripLineWeight    = trip.mapRouteLineWeight || 12;
+            currentMapTripEventParams  = trip.eventParameterizations || [];
 
             const plateField = document.getElementById('mapVehiclePlate');
             const manifestField = document.getElementById('mapManifest');
