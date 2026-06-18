@@ -5550,6 +5550,52 @@
             } catch (e) { return null; }
         }
 
+        function _formatCpDateTime(iso) {
+            if (!iso) return null;
+            return String(iso).replace('T', ' ').substring(0, 16);
+        }
+
+        // Busca el checkpoint ORIGIN/DESTINATION del viaje y construye el bloque
+        // ciudad + comparativo (cumplio con check y fecha de llegada, o incumplio
+        // mostrando hora que debia llegar vs hora en que paso).
+        function _renderCheckpointCell(trip, controlType, cityName) {
+            const checkpoints = trip.checkpoints || [];
+            const cp = checkpoints.find(c => String(c.controlType || '').toUpperCase() === controlType);
+            const cityLine = `<div style="font-weight:600;color:#0f172a;">${cityName || '-'}</div>`;
+
+            if (!cp) {
+                return cityLine;
+            }
+
+            const debia  = _formatCpDateTime(cp.deadlineAt) || _formatCpDateTime(cp.estimatedPassageAt);
+            const llego  = _formatCpDateTime(cp.passedAt);
+            const estimado = _formatCpDateTime(cp.estimatedPassageAt);
+
+            let detalle;
+            if (cp.status === 'PASSED' && cp.compliant === true) {
+                detalle = `<div style="font-size:11px;color:#16a34a;margin-top:3px;display:flex;align-items:center;gap:4px;">
+                                <span style="font-weight:700;">&#10003;</span><span>Llego: ${llego || '-'}</span>
+                            </div>`;
+            } else if (cp.status === 'PASSED' && cp.compliant === false) {
+                detalle = `<div style="font-size:11px;color:#dc2626;margin-top:3px;line-height:1.5;">
+                                <div><span style="font-weight:700;">&#10007;</span> Debia: ${debia || '-'}</div>
+                                <div style="margin-left:13px;">Llego: ${llego || '-'}</div>
+                            </div>`;
+            } else if (cp.status === 'MISSED') {
+                detalle = `<div style="font-size:11px;color:#dc2626;margin-top:3px;line-height:1.5;">
+                                <div><span style="font-weight:700;">&#10007;</span> Debia: ${debia || '-'}</div>
+                                <div style="margin-left:13px;">No llego</div>
+                            </div>`;
+            } else if (cp.status === 'NO_REGISTRA') {
+                detalle = `<div style="font-size:11px;color:#94a3b8;margin-top:3px;">Sin registro GPS</div>`;
+            } else {
+                // PENDING / APPROACHING / INSIDE: aun no se resuelve el checkpoint
+                detalle = `<div style="font-size:11px;color:#64748b;margin-top:3px;">Estimado: ${estimado || '-'}</div>`;
+            }
+
+            return cityLine + detalle;
+        }
+
         function displayActiveTrips(trips) {
             const container = document.getElementById('activeTripsContainer');
             if (!container) return;
@@ -5600,8 +5646,8 @@
                             + (gpsMsgRaw ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px;max-width:180px;line-height:1.3;">${gpsMsgRaw}</div>` : '')
                             + '</div>';
                 }
-                const origen = trip.originCity || '-';
-                const destino = trip.destinationCity || '-';
+                const origenCelda  = _renderCheckpointCell(trip, 'ORIGIN', trip.originCity);
+                const destinoCelda = _renderCheckpointCell(trip, 'DESTINATION', trip.destinationCity);
                 const conductor = (trip.drivers && trip.drivers.length > 0) ? trip.drivers[0] : '-';
                 const ultimaAct  = trip.lastUpdate   ? trip.lastUpdate.replace('T', ' ').substring(0, 16)   : '-';
                 const fechaReg   = trip.registeredAt ? trip.registeredAt.replace('T', ' ').substring(0, 16) : '-';
@@ -5625,7 +5671,8 @@
                         <td style="padding: 12px 14px; font-family: monospace; font-size: 13px; color: #475569;">${trip.manifest || '-'}</td>
                         <td style="padding: 12px 14px; font-family: monospace; font-size: 12px; color: #64748b;">${trip.vehicleNumericId || '-'}</td>
                         <td style="padding: 12px 14px; font-size: 13px;">${conductor}</td>
-                        <td style="padding: 12px 14px; font-size: 13px;">${origen} &rarr; ${destino}</td>
+                        <td style="padding: 12px 14px; font-size: 13px;">${origenCelda}</td>
+                        <td style="padding: 12px 14px; font-size: 13px;">${destinoCelda}</td>
                         <td style="padding: 12px 14px;">
                             <span style="background: ${statusColor}22; color: ${statusColor}; border: 1px solid ${statusColor}44;
                                          padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600;">
@@ -5703,7 +5750,8 @@
                                 <th style="padding: 12px 14px; text-align: left; font-size: 13px; font-weight: 600; color: #0891b2;">Manifiesto</th>
                                 <th style="padding: 12px 14px; text-align: left; font-size: 13px; font-weight: 600; color: #0891b2;">VehicleNumericID</th>
                                 <th style="padding: 12px 14px; text-align: left; font-size: 13px; font-weight: 600; color: #0891b2;">Conductor</th>
-                                <th style="padding: 12px 14px; text-align: left; font-size: 13px; font-weight: 600; color: #0891b2;">Origen / Destino</th>
+                                <th style="padding: 12px 14px; text-align: left; font-size: 13px; font-weight: 600; color: #0891b2;">Origen</th>
+                                <th style="padding: 12px 14px; text-align: left; font-size: 13px; font-weight: 600; color: #0891b2;">Destino</th>
                                 <th style="padding: 12px 14px; text-align: left; font-size: 13px; font-weight: 600; color: #0891b2;">Estado</th>
                                 <th style="padding: 12px 14px; text-align: left; font-size: 13px; font-weight: 600; color: #0891b2;">GPS</th>
                                 <th style="padding: 12px 14px; text-align: left; font-size: 13px; font-weight: 600; color: #0891b2;">Operador GPS</th>
