@@ -10864,6 +10864,14 @@
                 'GPS_CONNECTION_FAILED': 'Fallo de conexión GPS',
                 'FUEL_ALERT':            'Alerta de combustible',
                 'CHECKPOINT_ALERT':      'Puesto de control',
+                'CHECKPOINT_ENTRY':      'Entrada a punto',
+                'CHECKPOINT_EXIT':       'Salida de punto',
+                'CHECKPOINT_PASS':       'Paso por punto',
+                'CHECKPOINT_STAY':       'Permanencia en punto',
+                'CHECKPOINT_APPROACH':   'Aproximación a punto',
+                'CHECKPOINT_MISSED':     'Punto no visitado',
+                'CHECKPOINT_NO_REGISTRA':'Punto sin registro GPS',
+                'TRIP_COMPLETED':        'Viaje completado',
                 'LOADING_TIME_ALERT':    'Tiempo de carga',
                 'DRIVER_ALERT':          'Alerta del conductor',
                 'VEHICLE_STATUS_ALERT':  'Estado del vehículo',
@@ -10879,7 +10887,15 @@
                 'Speeding':    'Exc. Velocidad',
                 'ROUTE_EXCESS':'Exc. Velocidad',
                 'DETENTION':   'Veh. Detenido',
-                'CHECKPOINT':  'Paso Punto'
+                'CHECKPOINT':  'Paso Punto',
+                'CHECKPOINT_ENTRY':       'Entrada',
+                'CHECKPOINT_EXIT':        'Salida',
+                'CHECKPOINT_PASS':        'Paso',
+                'CHECKPOINT_STAY':        'Permanencia',
+                'CHECKPOINT_APPROACH':    'Aproximación',
+                'CHECKPOINT_MISSED':      'No visitado',
+                'CHECKPOINT_NO_REGISTRA': 'Sin GPS',
+                'TRIP_COMPLETED':         'Viaje fin'
             };
             return labels[eventoKey] || formatAlertType(eventoKey) || 'Alerta';
         }
@@ -16221,15 +16237,24 @@
                     const dyn  = dynamicMap[cpId] || {};
                     return {
                         id:                cpId,
-                        name:              scp.name || dyn.checkpointName || '-',
+                        name:              scp.name || scp.site || dyn.checkpointName || '-',
                         order:             scp.order != null ? scp.order : (dyn.checkpointOrder != null ? dyn.checkpointOrder : 99),
                         controlType:       scp.controlType || dyn.controlType || '',
                         estimatedPassageAt:scp.estimatedPassageAt || dyn.estimatedPassageAt || null,
                         timeTolerance:     scp.timeTolerance != null ? scp.timeTolerance : (dyn.timeTolerance != null ? dyn.timeTolerance : null),
-                        deadlineAt:        dyn.deadlineAt || null,
-                        status:            dyn.status || 'PENDING',
-                        passedAt:          dyn.passedAt || null,
-                        compliant:         dyn.compliant != null ? dyn.compliant : null,
+                        deadlineAt:        dyn.deadlineAt || scp.deadlineAt || null,
+                        status:            dyn.status || scp.status || 'PENDING',
+                        passedAt:          dyn.passedAt || scp.passedAt || null,
+                        compliant:         dyn.compliant != null ? dyn.compliant : (scp.compliant != null ? scp.compliant : null),
+                        // Campos de comportamiento y tiempos por transicion (vienen del active-dashboard
+                        // en scp; el endpoint /checkpoints no los entrega, por eso scp tiene prioridad).
+                        behavior:          scp.behavior || dyn.behavior || null,
+                        entryTime:         scp.entryTime || dyn.entryTime || null,
+                        exitTime:          scp.exitTime || dyn.exitTime || null,
+                        passTime:          scp.passTime || dyn.passTime || null,
+                        passMethod:        scp.passMethod || dyn.passMethod || null,
+                        approachTime:      scp.approachTime || dyn.approachTime || null,
+                        dwellMinutes:      scp.dwellMinutes != null ? scp.dwellMinutes : (dyn.dwellMinutes != null ? dyn.dwellMinutes : null),
                     };
                 });
 
@@ -16319,6 +16344,38 @@
                         ? cp.passedAt.replace('T', ' ').substring(0, 16)
                         : null;
 
+                    // Tiempos por transicion (entrada / salida / paso / permanencia / aproximacion)
+                    const _fmtCp = (s) => s ? String(s).replace('T', ' ').substring(0, 16) : null;
+                    const entradaStr     = _fmtCp(cp.entryTime);
+                    const salidaStr      = _fmtCp(cp.exitTime);
+                    const pasoStr        = _fmtCp(cp.passTime);
+                    const aproxStr       = _fmtCp(cp.approachTime);
+                    const dwellStr       = (cp.dwellMinutes != null)
+                        ? (Math.round(Number(cp.dwellMinutes) * 10) / 10) + ' min'
+                        : null;
+
+                    // Badges de "que monitorea la lambda" en este punto, segun behavior
+                    const beh = cp.behavior || {};
+                    const behDefs = [
+                        ['entry', 'Entrada'], ['exit', 'Salida'], ['approach', 'Aproximacion'],
+                        ['pass_through', 'Paso'], ['stay', 'Permanencia'],
+                    ];
+                    const behChips = behDefs
+                        .filter(([k]) => beh[k])
+                        .map(([k, label]) => `<span style="font-size:10px;font-weight:600;padding:1px 7px;border-radius:8px;background:#eef2ff;color:#4f46e5;">${label}</span>`)
+                        .join('');
+                    const behBlock = behChips
+                        ? `<div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:5px;">
+                               <span style="color:#94a3b8;font-size:10px;font-weight:700;text-transform:uppercase;">Monitorea:</span>${behChips}
+                           </div>`
+                        : '';
+
+                    const _filaTiempo = (label, valor, color) => `
+                        <div>
+                            <span style="color:#94a3b8;font-size:11px;font-weight:600;text-transform:uppercase;">${label}: </span>
+                            <span style="font-weight:700;color:${color || '#0f172a'};">${valor}</span>
+                        </div>`;
+
                     return `
                     <div style="display:flex;gap:12px;${isLast ? '' : 'margin-bottom:4px;'}">
                         <!-- linea de tiempo -->
@@ -16337,6 +16394,7 @@
                                 ${ctBadge}
                                 <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:${statusBg};color:${statusColor};">${statusLabel}</span>
                             </div>
+                            ${behBlock}
                             <div style="font-size:12px;color:#475569;display:flex;flex-direction:column;gap:3px;">
                                 <div>
                                     <span style="color:#94a3b8;font-size:11px;font-weight:600;text-transform:uppercase;">Estimado: </span>
@@ -16352,6 +16410,17 @@
                                     <span style="color:#94a3b8;font-size:11px;font-weight:600;text-transform:uppercase;">Paso a las: </span>
                                     <span style="font-weight:700;color:${statusColor};">${pasadaStr}</span>
                                 </div>` : ''}
+                                ${entradaStr ? _filaTiempo('Entrada', entradaStr, '#2563eb') : ''}
+                                ${salidaStr ? _filaTiempo('Salida', salidaStr, '#0891b2') : ''}
+                                ${pasoStr ? _filaTiempo('Paso' + (cp.passMethod ? ' (' + cp.passMethod + ')' : ''), pasoStr, statusColor) : ''}
+                                ${dwellStr ? _filaTiempo('Permanencia', dwellStr, '#7c3aed') : ''}
+                                ${aproxStr
+                                    ? _filaTiempo('Aproximacion', aproxStr, '#0ea5e9')
+                                    : (beh.approach ? `
+                                <div>
+                                    <span style="color:#94a3b8;font-size:11px;font-weight:600;text-transform:uppercase;">Aproximacion: </span>
+                                    <span style="color:#94a3b8;font-style:italic;">monitoreada (sin registro aun)</span>
+                                </div>` : '')}
                             </div>
                         </div>
                     </div>`;
