@@ -4760,6 +4760,28 @@
         console.log('API_BASE_URL:', API_BASE_URL);
         console.log('Hostname:', window.location.hostname);
 
+        // Extrae un mensaje de error legible de las distintas formas de respuesta de la API.
+        // La API puede devolver el error como string, como objeto anidado {message},
+        // o en el campo detail de FastAPI (string, objeto, o lista de errores de validacion).
+        // Evita que se muestre "[object Object]" cuando message es un objeto.
+        function extractApiError(result, fallback) {
+            fallback = fallback || 'Error desconocido';
+            if (!result) return fallback;
+            const fromValue = (val) => {
+                if (val == null) return null;
+                if (typeof val === 'string') return val;
+                if (Array.isArray(val)) {
+                    const partes = val
+                        .map((it) => (it && (it.msg || it.message)) || (typeof it === 'string' ? it : null))
+                        .filter(Boolean);
+                    return partes.length ? partes.join('; ') : null;
+                }
+                if (typeof val === 'object') return val.message || val.error || null;
+                return String(val);
+            };
+            return fromValue(result.message) || fromValue(result.detail) || fromValue(result.error) || fallback;
+        }
+
         // Variables globales
         let routeCounter = 0;
         let checkpointCounter = 0;
@@ -5458,7 +5480,7 @@
                         checkpointCounter = 0;
                     }, 3000);
                 } else {
-                    showAlert('registerAlert', 'error', `❌ Error al registrar vehículo:<br><br>${result.message || result.detail?.message || JSON.stringify(result)}`);
+                    showAlert('registerAlert', 'error', `❌ Error al registrar vehículo:<br><br>${extractApiError(result, JSON.stringify(result))}`);
                 }
             } catch (error) {
                 showAlert('registerAlert', 'error', `❌ Error de conexión: ${error.message}`);
@@ -5492,7 +5514,7 @@
                                 '| manifest:', primerViaje.manifest);
                         }
                     } else {
-                        container.innerHTML = `<div class="alert alert-error">Error al cargar viajes: ${result.message || result.detail?.message || 'Error desconocido'}</div>`;
+                        container.innerHTML = `<div class="alert alert-error">Error al cargar viajes: ${extractApiError(result)}</div>`;
                         return;
                     }
                 } catch (error) {
@@ -7100,7 +7122,7 @@
                     alert(`✅ Vehículo ${plate} ${currentStatus ? 'desactivado' : 'activado'} exitosamente.`);
                     loadActiveVehicles(); // Recargar lista
                 } else {
-                    alert(`❌ Error al ${action} vehículo: ${result.message || result.detail?.message || 'Error desconocido'}`);
+                    alert(`❌ Error al ${action} vehículo: ${extractApiError(result)}`);
                 }
             } catch (error) {
                 alert(`❌ Error de conexión: ${error.message}`);
@@ -7864,7 +7886,7 @@
                         modal.remove();
                     }
                 } else {
-                    alert(`Error al actualizar: ${result.message || result.detail?.message || 'Error desconocido'}`);
+                    alert(`Error al actualizar: ${extractApiError(result)}`);
                 }
             } catch (error) {
                 console.error('Error al actualizar vehículo:', error);
