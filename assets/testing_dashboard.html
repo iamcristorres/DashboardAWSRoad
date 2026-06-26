@@ -3259,6 +3259,12 @@
                         <label>Numero de Manifiesto</label>
                         <input type="text" id="searchTripManifest" placeholder="Ej: MAN-2024-001">
                     </div>
+                    <div class="form-group">
+                        <label>Empresa transportadora</label>
+                        <select id="searchTripCompany" onchange="filterAndDisplayTrips()" style="padding: 10px 12px; border: 1px solid rgba(6,182,212,0.3); border-radius: 10px; font-size: 14px; width: 100%; background: white;">
+                            <option value="">Todas las empresas</option>
+                        </select>
+                    </div>
                 </div>
                 <div style="display: flex; gap: 10px;">
                     <button class="btn btn-primary" onclick="loadActiveTrips()" style="display: flex; align-items: center; gap: 8px;">
@@ -4317,6 +4323,7 @@
                                 <option value="100" selected>100</option>
                                 <option value="250">250</option>
                                 <option value="500">500</option>
+                                <option value="all">Todas</option>
                             </select>
                         </div>
                         <div>
@@ -5505,6 +5512,7 @@
 
                     if (response.ok && result.success) {
                         allActiveTripsCache = result.trips || [];
+                        populateCompanyFilter();
                         const primerViaje = allActiveTripsCache[0];
                         console.log('[DASHBOARD] Cache cargado:', allActiveTripsCache.length, 'viajes');
                         if (primerViaje) {
@@ -5526,6 +5534,25 @@
             filterAndDisplayTrips();
         }
 
+        // Llena el select de empresa transportadora con las empresas presentes en el
+        // cache de viajes (valor = companyNIT, texto = companyName). Conserva la seleccion.
+        function populateCompanyFilter() {
+            const sel = document.getElementById('searchTripCompany');
+            if (!sel || !allActiveTripsCache) return;
+            const prev = sel.value;
+            const companies = new Map();
+            allActiveTripsCache.forEach(t => {
+                const nit = String(t.companyNIT || '').trim();
+                if (!nit) return;
+                const name = (t.companyName || '').trim() || nit;
+                if (!companies.has(nit)) companies.set(nit, name);
+            });
+            const sorted = [...companies.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+            sel.innerHTML = '<option value="">Todas las empresas</option>'
+                + sorted.map(([nit, name]) => `<option value="${nit}">${name}</option>`).join('');
+            if (prev && companies.has(prev)) sel.value = prev;
+        }
+
         function filterAndDisplayTrips() {
             const container = document.getElementById('activeTripsContainer');
             if (!container || !allActiveTripsCache) return;
@@ -5533,6 +5560,7 @@
             const plateFiltro = (document.getElementById('searchTripPlate').value || '').trim().toUpperCase();
             const numericIdFiltro = (document.getElementById('searchTripNumericId').value || '').trim();
             const manifestFiltro = (document.getElementById('searchTripManifest').value || '').trim().toUpperCase();
+            const companyFiltro = (document.getElementById('searchTripCompany')?.value || '').trim();
 
             let trips = allActiveTripsCache;
 
@@ -5544,6 +5572,9 @@
             }
             if (manifestFiltro) {
                 trips = trips.filter(t => (t.manifest || '').toUpperCase().includes(manifestFiltro));
+            }
+            if (companyFiltro) {
+                trips = trips.filter(t => String(t.companyNIT || '') === companyFiltro);
             }
 
             // Ordenar por ultima actualizacion GPS, mas reciente primero
@@ -5693,6 +5724,7 @@
                         <td style="padding: 12px 14px; font-family: monospace; font-size: 13px; color: #475569;">${trip.manifest || '-'}</td>
                         <td style="padding: 12px 14px; font-family: monospace; font-size: 12px; color: #64748b;">${trip.vehicleNumericId || '-'}</td>
                         <td style="padding: 12px 14px; font-size: 13px;">${conductor}</td>
+                        <td style="padding: 12px 14px; font-size: 13px; color: #0f172a;">${trip.companyName || trip.companyNIT || '-'}</td>
                         <td style="padding: 12px 14px; font-size: 13px;">${origenCelda}</td>
                         <td style="padding: 12px 14px; font-size: 13px;">${destinoCelda}</td>
                         <td style="padding: 12px 14px;">
@@ -5772,6 +5804,7 @@
                                 <th style="padding: 12px 14px; text-align: left; font-size: 13px; font-weight: 600; color: #0891b2;">Manifiesto</th>
                                 <th style="padding: 12px 14px; text-align: left; font-size: 13px; font-weight: 600; color: #0891b2;">VehicleNumericID</th>
                                 <th style="padding: 12px 14px; text-align: left; font-size: 13px; font-weight: 600; color: #0891b2;">Conductor</th>
+                                <th style="padding: 12px 14px; text-align: left; font-size: 13px; font-weight: 600; color: #0891b2;">Empresa</th>
                                 <th style="padding: 12px 14px; text-align: left; font-size: 13px; font-weight: 600; color: #0891b2;">Origen</th>
                                 <th style="padding: 12px 14px; text-align: left; font-size: 13px; font-weight: 600; color: #0891b2;">Destino</th>
                                 <th style="padding: 12px 14px; text-align: left; font-size: 13px; font-weight: 600; color: #0891b2;">Estado</th>
@@ -5795,6 +5828,8 @@
             document.getElementById('searchTripPlate').value = '';
             document.getElementById('searchTripNumericId').value = '';
             document.getElementById('searchTripManifest').value = '';
+            const companySel = document.getElementById('searchTripCompany');
+            if (companySel) companySel.value = '';
             if (allActiveTripsCache) {
                 filterAndDisplayTrips();
             }
@@ -8410,7 +8445,7 @@
         }
 
         // Crear icono de checkpoint
-        function createCheckpointIcon(type, number) {
+        function createCheckpointIcon(type, number, statusColor) {
             const checkpointStyles = {
                 'ORIGIN': {
                     color: '#10b981',
@@ -8455,10 +8490,12 @@
             };
 
             const style = checkpointStyles[type] || checkpointStyles['INTERMEDIATE'];
+            // Si hay color de estado (cumplido/tardio/no paso/pendiente) prima sobre el color por tipo
+            const bg = statusColor || style.color;
 
             return L.divIcon({
                 className: 'checkpoint-icon',
-                html: `<div style="overflow: visible; background: ${style.color}; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 3px solid white; box-shadow: 0 4px 12px rgba(0,0,0,0.25); flex-direction: column; gap: 0;">
+                html: `<div style="overflow: visible; background: ${bg}; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 3px solid white; box-shadow: 0 4px 12px rgba(0,0,0,0.25); flex-direction: column; gap: 0;">
                     <div style="font-size: 16px; line-height: 1;">${style.icon}</div>
                     <div style="font-size: 10px; font-weight: 700; color: white; line-height: 1;">${number}</div>
                 </div>`,
@@ -8491,9 +8528,50 @@
             });
         }
 
+        // Color y etiqueta de estado de un checkpoint para el mapa.
+        // Devuelve null si el checkpoint no tiene informacion de estado (ej: en el
+        // mapa de edicion de rutas), para que se use el color por tipo de siempre.
+        function _checkpointStatusInfo(cp) {
+            if (!cp) return null;
+            const hasStatus = cp.status !== undefined && cp.status !== null && cp.status !== '';
+            if (!hasStatus && !cp.passedAt) return null;
+            if (cp.status === 'NO_REGISTRA') return { color: '#64748b', label: 'Sin GPS' };
+            if (cp.status === 'MISSED')      return { color: '#dc2626', label: 'No paso' };
+            if (cp.passedAt) {
+                if (cp.compliant === true)  return { color: '#16a34a', label: 'Cumplido' };
+                if (cp.compliant === false) return { color: '#ea580c', label: 'Tardio' };
+                return { color: '#0891b2', label: 'Paso' };
+            }
+            if (cp.status === 'INSIDE') return { color: '#2563eb', label: 'En zona' };
+            return { color: '#94a3b8', label: 'Pendiente' };
+        }
+
+        // Resalta en el mapa el checkpoint cuyo 'order' coincide: centra, abre el popup
+        // y aplica un enfasis temporal. Se llama desde la lista de checkpoints del panel.
+        function highlightCheckpointOnMap(order) {
+            const marker = window._cpMarkersByOrder && window._cpMarkersByOrder[String(order)];
+            if (!marker || !map) return;
+            const latlng = marker.getLatLng();
+            map.setView(latlng, Math.max(map.getZoom() || 0, 15), { animate: true });
+            try { marker.openPopup(); } catch (e) {}
+            const el = marker.getElement();
+            if (el) {
+                const inner = el.querySelector('div');
+                if (inner) {
+                    inner.style.transition = 'transform 0.2s ease';
+                    inner.style.transformOrigin = 'center';
+                    inner.style.transform = 'scale(1.6)';
+                    inner.style.zIndex = '1000';
+                    setTimeout(() => { inner.style.transform = ''; }, 1300);
+                }
+            }
+        }
+
         // Dibujar checkpoints planificados
         function drawCheckpoints(checkpoints, controlFilters) {
             const bounds = [];
+            // Registro de marcadores por 'order' para poder resaltarlos desde la lista
+            window._cpMarkersByOrder = {};
 
             // IMPORTANTE: Ordenar checkpoints por su campo 'order' antes de dibujar
             const orderedCheckpoints = checkpoints
@@ -8513,14 +8591,17 @@
                 // Usar el campo 'order' del checkpoint
                 const checkpointNumber = cp.order || (idx + 1);
 
+                const stInfo = _checkpointStatusInfo(cp);
                 const marker = L.marker(latlng, {
-                    icon: createCheckpointIcon(cp.controlType, checkpointNumber),
+                    icon: createCheckpointIcon(cp.controlType, checkpointNumber, stInfo ? stInfo.color : null),
                     opacity: 1,
-                    title: `${cp.site} (${cp.controlType})`
+                    title: `${cp.site} (${cp.controlType})${stInfo ? ' - ' + stInfo.label : ''}`
                 });
 
                 // Agregar INMEDIATAMENTE al mapa (sin setTimeout)
                 marker.addTo(map);
+                // Registrar para poder resaltarlo desde la lista de checkpoints
+                window._cpMarkersByOrder[String(cp.order != null ? cp.order : idx)] = marker;
 
                 // Agregar animaciones INMEDIATAMENTE sin delay
                 const iconElement = marker.getElement();
@@ -8577,6 +8658,7 @@
                 marker.bindPopup(`
                     <div style="min-width: 200px;">
                         <h3 style="margin: 0 0 8px 0; color: #06b6d4; font-size: 16px;">${cp.site}</h3>
+                        ${stInfo ? `<div style="margin:0 0 8px 0;"><span style="display:inline-block;font-size:12px;font-weight:700;padding:3px 10px;border-radius:12px;background:${stInfo.color}22;color:${stInfo.color};border:1px solid ${stInfo.color}55;">${stInfo.label}</span></div>` : ''}
                         <div style="display: grid; gap: 6px; font-size: 13px;">
                             <div><strong>Tipo:</strong> ${cp.controlType}</div>
                             <div><strong>Orden:</strong> ${cp.order}</div>
@@ -16399,7 +16481,9 @@
                         </div>`;
 
                     return `
-                    <div style="display:flex;gap:12px;${isLast ? '' : 'margin-bottom:4px;'}">
+                    <div onclick="highlightCheckpointOnMap(${cp.order != null ? cp.order : idx})" title="Ver en el mapa"
+                         style="display:flex;gap:12px;cursor:pointer;border-radius:8px;padding:4px;transition:background 0.15s;${isLast ? '' : 'margin-bottom:4px;'}"
+                         onmouseover="this.style.background='rgba(6,182,212,0.06)'" onmouseout="this.style.background=''">
                         <!-- linea de tiempo -->
                         <div style="display:flex;flex-direction:column;align-items:center;min-width:32px;">
                             <div style="width:28px;height:28px;border-radius:50%;background:${statusBg};border:2px solid ${statusColor};
@@ -16851,7 +16935,8 @@
 
             tbody.innerHTML = '<tr><td colspan="6" style="padding:20px;text-align:center;color:#06b6d4;">Cargando...</td></tr>';
 
-            let url = `${API_BASE_URL}/tracking/${searchCurrentNumericId}/positions?limit=${limit}&ascending=false`;
+            const limitParam = (limit === 'all') ? 'fetch_all=true' : `limit=${limit}`;
+            let url = `${API_BASE_URL}/tracking/${searchCurrentNumericId}/positions?${limitParam}&ascending=false`;
             if (fromVal) url += `&from_time=${new Date(fromVal).toISOString()}`;
             if (toVal)   url += `&to_time=${new Date(toVal).toISOString()}`;
 
