@@ -16403,7 +16403,13 @@
                 const rows = merged.map((cp, idx) => {
                     const isLast = idx === merged.length - 1;
 
-                    // Estado visual
+                    // Estado visual granular: adelantado / a tiempo / atrasado /
+                    // atrasado en camino / no paso. Se deriva de estimado, deadline y passedAt.
+                    const _cpD = (s) => { if (!s) return null; try { return new Date(String(s).replace(' ','T').replace(/Z$/,'').replace(/[+-]\d{2}:\d{2}$/,'') + '-05:00'); } catch(e){ return null; } };
+                    const _est = _cpD(cp.estimatedPassageAt);
+                    const _dl  = _cpD(cp.deadlineAt);
+                    const _pas = _cpD(cp.passedAt);
+                    const _ahora = new Date();
                     let statusColor, statusBg, statusIcon, statusLabel;
                     if (cp.status === 'NO_REGISTRA') {
                         statusColor = '#64748b'; statusBg = '#f1f5f9';
@@ -16412,12 +16418,21 @@
                         statusColor = '#dc2626'; statusBg = '#fef2f2';
                         statusIcon = 'x-circle'; statusLabel = 'No paso';
                     } else if (cp.passedAt) {
-                        if (cp.compliant === true) {
+                        if (_est && _pas && _pas < _est) {
+                            statusColor = '#16a34a'; statusBg = '#f0fdf4';
+                            statusIcon = 'check-circle'; statusLabel = 'Cumplido · adelantado';
+                        } else if (_dl && _pas && _pas <= _dl) {
+                            statusColor = '#16a34a'; statusBg = '#f0fdf4';
+                            statusIcon = 'check-circle'; statusLabel = 'Cumplido · a tiempo';
+                        } else if (_dl && _pas && _pas > _dl) {
+                            statusColor = '#ea580c'; statusBg = '#fff7ed';
+                            statusIcon = 'alert-triangle'; statusLabel = 'Incumplido · atrasado';
+                        } else if (cp.compliant === true) {
                             statusColor = '#16a34a'; statusBg = '#f0fdf4';
                             statusIcon = 'check-circle'; statusLabel = 'Cumplido';
                         } else if (cp.compliant === false) {
                             statusColor = '#ea580c'; statusBg = '#fff7ed';
-                            statusIcon = 'alert-triangle'; statusLabel = 'Tardio';
+                            statusIcon = 'alert-triangle'; statusLabel = 'Incumplido · atrasado';
                         } else {
                             statusColor = '#0891b2'; statusBg = '#f0f9ff';
                             statusIcon = 'check-circle'; statusLabel = 'Paso';
@@ -16425,6 +16440,9 @@
                     } else if (cp.status === 'INSIDE') {
                         statusColor = '#2563eb'; statusBg = '#eff6ff';
                         statusIcon = 'navigation'; statusLabel = 'En zona';
+                    } else if (_dl && _ahora > _dl) {
+                        statusColor = '#ea580c'; statusBg = '#fff7ed';
+                        statusIcon = 'clock'; statusLabel = 'Incumplido · atrasado (en camino)';
                     } else {
                         statusColor = '#94a3b8'; statusBg = '#f8fafc';
                         statusIcon = 'clock'; statusLabel = 'Pendiente';
