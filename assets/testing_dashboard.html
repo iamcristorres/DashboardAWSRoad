@@ -4394,7 +4394,7 @@
 
                 <!-- Filtros -->
                 <div style="background:rgba(255,255,255,0.7);backdrop-filter:blur(20px);padding:24px;border-radius:16px;margin-bottom:20px;border:1px solid rgba(100,116,139,0.2);">
-                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:12px;align-items:flex-end;">
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr auto;gap:12px;align-items:flex-end;">
                         <div>
                             <label style="display:block;font-size:13px;font-weight:600;color:rgba(15,23,42,0.7);margin-bottom:8px;">Placa</label>
                             <input type="text" id="closedPlate" placeholder="Ej: ABC123"
@@ -4413,9 +4413,24 @@
                                 style="width:100%;padding:12px 16px;border:2px solid rgba(100,116,139,0.25);border-radius:12px;font-size:14px;background:white;outline:none;box-sizing:border-box;"
                                 onkeydown="if(event.key==='Enter') buscarViajesCerrados()">
                         </div>
+                        <div>
+                            <label style="display:block;font-size:13px;font-weight:600;color:rgba(15,23,42,0.7);margin-bottom:8px;">Fecha inicio</label>
+                            <input type="date" id="closedDateFrom"
+                                style="width:100%;padding:12px 16px;border:2px solid rgba(100,116,139,0.25);border-radius:12px;font-size:14px;background:white;outline:none;box-sizing:border-box;"
+                                onkeydown="if(event.key==='Enter') buscarViajesCerrados()">
+                        </div>
+                        <div>
+                            <label style="display:block;font-size:13px;font-weight:600;color:rgba(15,23,42,0.7);margin-bottom:8px;">Fecha fin</label>
+                            <input type="date" id="closedDateTo"
+                                style="width:100%;padding:12px 16px;border:2px solid rgba(100,116,139,0.25);border-radius:12px;font-size:14px;background:white;outline:none;box-sizing:border-box;"
+                                onkeydown="if(event.key==='Enter') buscarViajesCerrados()">
+                        </div>
                         <button onclick="buscarViajesCerrados()" style="padding:12px 28px;background:linear-gradient(135deg,#64748b,#475569);color:white;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px;white-space:nowrap;height:48px;">
                             <i data-lucide="search" style="width:18px;height:18px;"></i> Buscar
                         </button>
+                    </div>
+                    <div style="margin-top:10px;font-size:12px;color:rgba(15,23,42,0.5);">
+                        El rango de fechas filtra por fecha de finalizacion del viaje. Los demas campos son opcionales y se combinan para mayor precision.
                     </div>
                     <div id="closedTripsError" style="display:none;margin-top:12px;padding:10px 16px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;color:#dc2626;font-size:13px;"></div>
                 </div>
@@ -6368,10 +6383,15 @@
             const evHtml = eventos.length === 0
                 ? '<p style="color:#94a3b8;font-size:13px;">Sin eventos configurados para este viaje</p>'
                 : eventos.map(ev => {
+                    // La unidad del rango depende del tipo de evento: desvio de ruta en metros,
+                    // detencion en minutos, exceso de velocidad en km/h.
+                    const unidadTier = ev.event_key === 'RouteDeviation' ? 'metros'
+                        : ev.event_key === 'Stop' ? 'min'
+                        : 'km/h';
                     const tiers = (ev.tiers || []).map(t => {
                         const bgColor  = t.tier_id === 'critical' ? '#fef2f2' : t.tier_id === 'moderate' ? '#fffbeb' : '#f0fdf4';
                         const txtColor = t.tier_id === 'critical' ? '#dc2626' : t.tier_id === 'moderate' ? '#d97706' : '#16a34a';
-                        const rango    = `${t.min_threshold !== undefined ? t.min_threshold : '?'} – ${t.max_threshold !== undefined ? t.max_threshold : '?'} km/h`;
+                        const rango    = `${t.min_threshold !== undefined ? t.min_threshold : '?'} – ${t.max_threshold !== undefined ? t.max_threshold : '?'} ${unidadTier}`;
                         const notif    = t.notify_after_minutes !== undefined && t.notify_after_minutes !== null
                             ? `${t.notify_after_minutes} min` : '-';
                         const torre    = t.tower_enabled === true || t.tower_enabled === 1 ? 'Si' : (t.tower_enabled === false || t.tower_enabled === 0 ? 'No' : '-');
@@ -17060,12 +17080,21 @@
             const plate    = document.getElementById('closedPlate').value.trim();
             const manifest = document.getElementById('closedManifest').value.trim();
             const nit      = document.getElementById('closedNit').value.trim();
+            const dateFrom = document.getElementById('closedDateFrom').value; // 'YYYY-MM-DD' o ''
+            const dateTo   = document.getElementById('closedDateTo').value;   // 'YYYY-MM-DD' o ''
             const errEl    = document.getElementById('closedTripsError');
             const loadEl   = document.getElementById('closedTripsLoading');
             const resEl    = document.getElementById('closedTripsResults');
 
             errEl.style.display = 'none';
             resEl.style.display = 'none';
+
+            if (dateFrom && dateTo && dateFrom > dateTo) {
+                errEl.textContent = 'La fecha de inicio no puede ser posterior a la fecha de fin.';
+                errEl.style.display = 'block';
+                return;
+            }
+
             loadEl.style.display = 'block';
 
             let url = `${API_BASE_URL}/trips/closed`;
@@ -17088,7 +17117,16 @@
                     return;
                 }
 
-                _closedTripsData = data.trips || [];
+                // Filtro por rango de fechas de finalizacion (closedAt) en el cliente.
+                // closedAt viene como 'YYYY-MM-DDTHH:mm:ss-05:00'; se compara la parte de fecha.
+                _closedTripsData = (data.trips || []).filter(t => {
+                    if (!dateFrom && !dateTo) return true;
+                    const fecha = (t.closedAt || '').substring(0, 10); // 'YYYY-MM-DD'
+                    if (!fecha) return false;
+                    if (dateFrom && fecha < dateFrom) return false;
+                    if (dateTo && fecha > dateTo) return false;
+                    return true;
+                });
                 renderClosedTripsTable(_closedTripsData);
                 resEl.style.display = 'block';
                 lucide.createIcons();
