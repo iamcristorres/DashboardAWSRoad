@@ -3923,6 +3923,38 @@
                     <!-- ID de compatibilidad para código antiguo que aún referencia statVehicles -->
                     <span id="statVehicles" style="display:none;"></span>
 
+                    <!-- Barra de capas: mostrar/ocultar marcadores del mapa -->
+                    <div id="mapLayerBar" style="display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;background:rgba(255,255,255,0.7);backdrop-filter:blur(20px);padding:12px 16px;border-radius:12px;margin-bottom:12px;border:1px solid rgba(6,182,212,0.15);font-size:13px;">
+                        <span style="font-weight:700;color:rgba(15,23,42,0.7);display:flex;align-items:center;gap:6px;">
+                            <i data-lucide="layers" style="width:15px;height:15px;color:#0891b2;"></i> Capas:
+                        </span>
+                        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:rgba(15,23,42,0.8);">
+                            <input type="checkbox" id="chkLayerGps" checked onchange="onToggleLayerGps()" style="width:15px;height:15px;cursor:pointer;accent-color:#8b5cf6;">
+                            <span style="width:10px;height:10px;border-radius:50%;background:#8b5cf6;display:inline-block;"></span> Puntos GPS
+                        </label>
+                        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:rgba(15,23,42,0.8);">
+                            <input type="checkbox" id="chkLayerRoute" checked onchange="onToggleLayerRoute()" style="width:15px;height:15px;cursor:pointer;accent-color:#06b6d4;">
+                            <span style="width:10px;height:10px;border-radius:50%;background:#06b6d4;display:inline-block;"></span> Ruta planificada
+                        </label>
+                        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:rgba(15,23,42,0.8);">
+                            <input type="checkbox" id="chkLayerCheckpoints" checked onchange="onToggleLayerCheckpoints()" style="width:15px;height:15px;cursor:pointer;accent-color:#a855f7;">
+                            <span style="width:10px;height:10px;border-radius:50%;background:#a855f7;display:inline-block;"></span> Checkpoints
+                        </label>
+                        <span style="width:1px;height:20px;background:rgba(15,23,42,0.12);"></span>
+                        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:rgba(15,23,42,0.8);">
+                            <input type="checkbox" id="chkLayerSpeeding" checked onchange="onToggleAlertType('Speeding')" style="width:15px;height:15px;cursor:pointer;accent-color:#dc3545;">
+                            <span style="width:10px;height:10px;border-radius:50%;background:#dc3545;display:inline-block;"></span> Exceso de velocidad
+                        </label>
+                        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:rgba(15,23,42,0.8);">
+                            <input type="checkbox" id="chkLayerStop" checked onchange="onToggleAlertType('Stop')" style="width:15px;height:15px;cursor:pointer;accent-color:#f59e0b;">
+                            <span style="width:10px;height:10px;border-radius:50%;background:#f59e0b;display:inline-block;"></span> Detención
+                        </label>
+                        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:rgba(15,23,42,0.8);">
+                            <input type="checkbox" id="chkLayerDeviation" checked onchange="onToggleAlertType('RouteDeviation')" style="width:15px;height:15px;cursor:pointer;accent-color:#0ea5e9;">
+                            <span style="width:10px;height:10px;border-radius:50%;background:#0ea5e9;display:inline-block;"></span> Desvío de ruta
+                        </label>
+                    </div>
+
                     <div id="mapContainer" style="height: 600px; border-radius: 16px; overflow: hidden; border: 1px solid rgba(6, 182, 212, 0.2); box-shadow: 0 8px 32px rgba(6, 182, 212, 0.15);"></div>
                 </div>
 
@@ -8427,12 +8459,8 @@
 
                 var color = TIER_COLORS[alert.Severity] || '#64748b';
                 var label = getSeverityLabel(alert.Severity);
-                var speed = alert.CurrentValue !== undefined
-                    ? alert.CurrentValue + ' ' + (alert.Unit || 'km/h') : '';
                 var location = alert.LocationName || '';
                 var time = formatAlertTime(alert.CreatedAt);
-                var rango = (alert.TierThresholdMin !== undefined && alert.TierThresholdMax !== undefined)
-                    ? alert.TierThresholdMin + '-' + alert.TierThresholdMax + ' km/h' : '';
 
                 var icon = L.divIcon({
                     className: '',
@@ -8447,12 +8475,21 @@
                     popupAnchor: [0, -17]
                 });
 
+                // Titulo y unidad segun el tipo real del evento (no siempre es velocidad)
+                var titulo = formatAlertType(alert.EventType) || alert.EventName || 'Alerta';
+                var unidadAlerta = alert.Unit || (alert.EventType === 'RouteDeviation' ? 'metros'
+                    : alert.EventType === 'Stop' ? 'min' : 'km/h');
+                var valor = alert.CurrentValue !== undefined
+                    ? alert.CurrentValue + ' ' + unidadAlerta : '';
+                var rangoTier = (alert.TierThresholdMin !== undefined && alert.TierThresholdMax !== undefined)
+                    ? alert.TierThresholdMin + '-' + alert.TierThresholdMax + ' ' + unidadAlerta : '';
+
                 var popup = '<div style="min-width:190px;font-size:13px;line-height:1.6;">' +
-                    '<div style="font-weight:700;color:' + color + ';margin-bottom:4px;">Exceso de velocidad</div>' +
+                    '<div style="font-weight:700;color:' + color + ';margin-bottom:4px;">' + titulo + '</div>' +
                     '<div style="display:inline-block;background:' + color + ';color:white;' +
                     'border-radius:4px;padding:1px 8px;font-size:11px;font-weight:700;margin-bottom:6px;">' + label + '</div>' +
-                    (speed ? '<div><strong>Velocidad:</strong> ' + speed + '</div>' : '') +
-                    (rango ? '<div><strong>Rango tier:</strong> ' + rango + '</div>' : '') +
+                    (valor ? '<div><strong>Valor:</strong> ' + valor + '</div>' : '') +
+                    (rangoTier ? '<div><strong>Rango tier:</strong> ' + rangoTier + '</div>' : '') +
                     (location ? '<div><strong>Ubicacion:</strong> ' + location + '</div>' : '') +
                     '<div><strong>Hora:</strong> ' + time + '</div>' +
                     '</div>';
@@ -8460,8 +8497,10 @@
                 var marker = L.marker([lat, lon], { icon: icon })
                     .bindPopup(popup)
                     .addTo(map);
+                marker._alertType = alert.EventType;
                 mapLayers.alerts.push(marker);
             });
+            applyAlertTypeVisibility();
         }
 
         // Crear icono de checkpoint
@@ -9367,9 +9406,11 @@
                     </div>
                 `);
 
+                marker._alertType = alertType;
                 mapLayers.alerts.push(marker);
             });
 
+            applyAlertTypeVisibility();
             return bounds;
         }
 
@@ -10979,7 +11020,9 @@
             const types = {
                 'Speeding':              'Exceso de velocidad',
                 'ROUTE_EXCESS':          'Exceso de velocidad',
+                'Stop':                  'Vehículo detenido',
                 'DETENTION':             'Vehículo detenido',
+                'RouteDeviation':        'Desvío de ruta',
                 'CHECKPOINT':            'Paso por punto',
                 'SPEED_VIOLATION':       'Exceso de velocidad',
                 'GEOFENCE_VIOLATION':    'Violación de geocerca',
@@ -11871,6 +11914,63 @@
                     if (map.hasLayer(mapLayers.lastLocation)) map.removeLayer(mapLayers.lastLocation);
                 }
             }
+        }
+
+        // ==================== CONTROL DE CAPAS (barra de checkboxes sobre el mapa) ====================
+        // Visibilidad por tipo de alerta. Se reaplica tras cada redibujado de alertas
+        // (drawAlerts / drawAlertMarkersOnMap) para respetar el estado de los checkboxes.
+        const mapAlertTypeVisible = { Speeding: true, Stop: true, RouteDeviation: true };
+
+        // Muestra u oculta los marcadores de alerta segun su tipo (marker._alertType).
+        // Un tipo que no este en la barra se muestra siempre.
+        function applyAlertTypeVisibility() {
+            if (!map || !Array.isArray(mapLayers.alerts)) return;
+            mapLayers.alerts.forEach(marker => {
+                if (!marker) return;
+                const tipo = marker._alertType;
+                const visible = (tipo in mapAlertTypeVisible) ? mapAlertTypeVisible[tipo] : true;
+                if (visible) {
+                    if (!map.hasLayer(marker)) map.addLayer(marker);
+                } else {
+                    if (map.hasLayer(marker)) map.removeLayer(marker);
+                }
+            });
+        }
+
+        // Checkbox de un tipo de alerta (Speeding / Stop / RouteDeviation).
+        function onToggleAlertType(tipo) {
+            const idMap = { Speeding: 'chkLayerSpeeding', Stop: 'chkLayerStop', RouteDeviation: 'chkLayerDeviation' };
+            const cb = document.getElementById(idMap[tipo]);
+            mapAlertTypeVisible[tipo] = cb ? cb.checked : true;
+            applyAlertTypeVisibility();
+        }
+
+        // Checkbox "Puntos GPS": controla la trayectoria. Sincroniza el flag interno
+        // showTrajectory para que los redibujados (loadMapData / refreshMapData) respeten el estado.
+        function onToggleLayerGps() {
+            const cb = document.getElementById('chkLayerGps');
+            const hidden = document.getElementById('showTrajectory');
+            if (hidden && cb) hidden.checked = cb.checked;
+            toggleTrajectory();
+        }
+
+        // Checkbox "Ruta planificada".
+        function onToggleLayerRoute() {
+            const cb = document.getElementById('chkLayerRoute');
+            const hidden = document.getElementById('showPlannedRoute');
+            if (hidden && cb) hidden.checked = cb.checked;
+            togglePlannedRoute();
+        }
+
+        // Checkbox "Checkpoints": controla los marcadores de checkpoint y sus radios.
+        function onToggleLayerCheckpoints() {
+            const cb = document.getElementById('chkLayerCheckpoints');
+            const hiddenCp = document.getElementById('showCheckpoints');
+            const hiddenRad = document.getElementById('showCheckpointRadii');
+            if (hiddenCp && cb) hiddenCp.checked = cb.checked;
+            if (hiddenRad && cb) hiddenRad.checked = cb.checked;
+            toggleCheckpoints();
+            toggleCheckpointRadii();
         }
 
         // Centrar mapa en los bounds guardados
