@@ -1,6 +1,6 @@
 {
   "name": "dashboard-gps",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "Dashboard de seguimiento GPS - Intrared",
   "main": "main.js",
   "scripts": {

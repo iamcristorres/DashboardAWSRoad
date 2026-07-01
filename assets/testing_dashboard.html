@@ -3943,15 +3943,15 @@
                         <span style="width:1px;height:20px;background:rgba(15,23,42,0.12);"></span>
                         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:rgba(15,23,42,0.8);">
                             <input type="checkbox" id="chkLayerSpeeding" checked onchange="onToggleAlertType('Speeding')" style="width:15px;height:15px;cursor:pointer;accent-color:#dc3545;">
-                            <span style="width:10px;height:10px;border-radius:50%;background:#dc3545;display:inline-block;"></span> Exceso de velocidad
+                            <span style="width:18px;height:18px;border-radius:50%;background:#64748b;display:inline-flex;align-items:center;justify-content:center;color:white;font-weight:900;font-size:12px;line-height:1;">»</span> Exceso de velocidad
                         </label>
                         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:rgba(15,23,42,0.8);">
                             <input type="checkbox" id="chkLayerStop" checked onchange="onToggleAlertType('Stop')" style="width:15px;height:15px;cursor:pointer;accent-color:#f59e0b;">
-                            <span style="width:10px;height:10px;border-radius:50%;background:#f59e0b;display:inline-block;"></span> Detención
+                            <span style="width:18px;height:18px;border-radius:50%;background:#64748b;display:inline-flex;align-items:center;justify-content:center;color:white;font-weight:900;font-size:11px;line-height:1;">■</span> Detención
                         </label>
                         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:rgba(15,23,42,0.8);">
                             <input type="checkbox" id="chkLayerDeviation" checked onchange="onToggleAlertType('RouteDeviation')" style="width:15px;height:15px;cursor:pointer;accent-color:#0ea5e9;">
-                            <span style="width:10px;height:10px;border-radius:50%;background:#0ea5e9;display:inline-block;"></span> Desvío de ruta
+                            <span style="width:18px;height:18px;border-radius:50%;background:#64748b;display:inline-flex;align-items:center;justify-content:center;color:white;font-weight:900;font-size:12px;line-height:1;">↪</span> Desvío de ruta
                         </label>
                     </div>
 
@@ -8469,7 +8469,7 @@
                         'background:' + color + ';border:3px solid white;' +
                         'box-shadow:0 2px 8px rgba(0,0,0,0.45);' +
                         'display:flex;align-items:center;justify-content:center;' +
-                        'font-size:13px;font-weight:900;color:white;">!</div>',
+                        'font-size:15px;font-weight:900;color:white;line-height:1;">' + getAlertGlyph(alert.EventType) + '</div>',
                     iconSize: [28, 28],
                     iconAnchor: [14, 14],
                     popupAnchor: [0, -17]
@@ -8563,13 +8563,23 @@
             });
         }
 
-        // Crear icono de alerta
-        function createAlertIcon() {
+        // Glifo distintivo por tipo de alerta para los marcadores del mapa.
+        // Se usa un simbolo unicode (renderiza en blanco sobre el circulo) en lugar de
+        // un icono Lucide para no depender de createIcons() ni de la version de la libreria.
+        function getAlertGlyph(eventType) {
+            switch (eventType) {
+                case 'Speeding':       return '»'; // » exceso de velocidad
+                case 'Stop':           return '■'; // ■ detencion
+                case 'RouteDeviation': return '↪'; // ↪ desvio de ruta
+                default:               return '!';
+            }
+        }
+
+        // Crear icono de alerta (glifo segun el tipo de evento)
+        function createAlertIcon(eventType) {
             return L.divIcon({
                 className: 'alert-icon',
-                html: `<div style="background: #f97316; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 3px solid white; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
-                    <i data-lucide="alert-triangle" style="width: 18px; height: 18px; color: white; stroke-width: 2.5;"></i>
-                </div>`,
+                html: `<div style="background: #f97316; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 3px solid white; box-shadow: 0 4px 12px rgba(0,0,0,0.3); font-size: 17px; font-weight: 900; color: white; line-height: 1;">${getAlertGlyph(eventType)}</div>`,
                 iconSize: [32, 32],
                 iconAnchor: [16, 16]
             });
@@ -9366,7 +9376,7 @@
                 bounds.push(latlng);
 
                 const marker = L.marker(latlng, {
-                    icon: createAlertIcon()
+                    icon: createAlertIcon(alertType)
                 }).addTo(map);
 
                 console.log(`✅ Marcador de alerta ${idx + 1} agregado al mapa`);
