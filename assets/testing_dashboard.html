@@ -6488,7 +6488,36 @@
         }
 
         // ==================== MAPA DE VIAJE ACTIVO ====================
-        function openTripInMap(tripIdx) {
+        // Carga bajo demanda el detalle del viaje (checkpoints, remesas, eventos, geometria)
+        // via by-freight/{freightId}. La lista (active-dashboard) llega liviana sin estos
+        // campos; se piden solo al abrir el viaje. Fusiona en el objeto trip y cachea con
+        // _detailLoaded para no re-consultar. Resiliente: ante fallo conserva lo que haya.
+        async function ensureTripDetailLoaded(trip) {
+            if (!trip || trip._detailLoaded) return;
+            const freightId = trip.freightId || trip.tripId;
+            if (!freightId) return;
+            try {
+                const resp = await fetch(`${API_BASE_URL}/trips/by-freight/${encodeURIComponent(freightId)}`);
+                if (!resp.ok) { console.warn('[DASHBOARD] by-freight no OK:', resp.status); return; }
+                const data = await resp.json();
+                const det = data && data.trip;
+                if (!det) return;
+                ['checkpoints','remittances','eventParameterizations','origin','destination',
+                 'routeGeometry','routeGeometryFormat','mapRouteLineWeight','events','speedHistory',
+                 'timeDistribution','gpsDevices'].forEach(k => {
+                    if (det[k] !== undefined && det[k] !== null) trip[k] = det[k];
+                });
+                trip._detailLoaded = true;
+                console.log('[DASHBOARD] Detalle by-freight freight', freightId,
+                    '- checkpoints:', (trip.checkpoints||[]).length,
+                    'remesas:', (trip.remittances||[]).length,
+                    'eventos:', (trip.eventParameterizations||[]).length);
+            } catch (e) {
+                console.warn('[DASHBOARD] Error cargando detalle by-freight:', e);
+            }
+        }
+
+        async function openTripInMap(tripIdx) {
             const trip = window._displayedTrips && window._displayedTrips[tripIdx];
             if (!trip) { alert('No se encontro el viaje.'); return; }
 
@@ -6500,6 +6529,9 @@
                 alert('Este viaje no tiene VehicleNumericID asignado.');
                 return;
             }
+
+            // Cargar el detalle completo bajo demanda antes de poblar el panel
+            await ensureTripDetailLoaded(trip);
 
             // Guardar el viaje activo para que loadMapPositions lo use
             currentMapTripNumericId    = vehicleNumericId;
@@ -17751,9 +17783,12 @@
         }
         // ===== fin purgar BD =====
 
-        function abrirEnMapaViajesCerrado(idx) {
+        async function abrirEnMapaViajesCerrado(idx) {
             const trip = _closedTripsData[idx];
             if (!trip || !trip.vehicleNumericId) { alert('Viaje sin VehicleNumericID.'); return; }
+
+            // Cargar detalle completo bajo demanda (checkpoints, remesas, eventos)
+            await ensureTripDetailLoaded(trip);
 
             currentMapTripNumericId    = trip.vehicleNumericId;
             currentMapTripPlate        = trip.plate || '';
