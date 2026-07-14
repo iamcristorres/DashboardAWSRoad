@@ -4880,7 +4880,7 @@
         }
 
         // ==================== GESTIÓN DE TABS ====================
-        function switchTab(tabName) {
+        function switchTab(tabName, evt) {
             // Ocultar todos los tabs
             document.querySelectorAll('.tab-content').forEach(tab => {
                 tab.classList.remove('active');
@@ -4893,7 +4893,20 @@
 
             // Activar tab seleccionado
             document.getElementById(`tab-${tabName}`).classList.add('active');
-            event.target.classList.add('active');
+
+            // Activar el boton correspondiente. No depender del 'event' global:
+            // al invocar switchTab programaticamente no existe 'event' y acceder a
+            // event.target lanza excepcion, abortando el flujo que continua despues.
+            const evtObj = evt || (typeof window !== 'undefined' ? window.event : null);
+            if (evtObj && evtObj.target && evtObj.target.classList) {
+                evtObj.target.classList.add('active');
+            } else {
+                const btn = Array.from(document.querySelectorAll('.tab-btn')).find(b => {
+                    const oc = b.getAttribute('onclick') || '';
+                    return oc.indexOf(`switchTab('${tabName}')`) !== -1 || oc.indexOf(`switchTab("${tabName}")`) !== -1;
+                });
+                if (btn) btn.classList.add('active');
+            }
         }
 
         // ==================== FORMULARIO DE REGISTRO ====================
