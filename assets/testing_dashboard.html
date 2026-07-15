@@ -18257,5 +18257,164 @@
     </div>
     <!-- fin Modal purgar BD -->
 
+    <!-- ==================== COPILOTO DE TORRE DE CONTROL (burbuja flotante) ==================== -->
+    <style>
+        #copilotoBtn{position:fixed;right:22px;bottom:22px;width:58px;height:58px;border-radius:50%;
+            background:linear-gradient(135deg,#06b6d4,#0891b2);border:none;cursor:pointer;z-index:99998;
+            box-shadow:0 8px 24px rgba(8,145,178,0.45);display:flex;align-items:center;justify-content:center;
+            transition:transform .15s;}
+        #copilotoBtn:hover{transform:scale(1.06);}
+        #copilotoPanel{position:fixed;right:22px;bottom:92px;width:380px;max-width:calc(100vw - 44px);
+            height:560px;max-height:calc(100vh - 130px);background:#fff;border:1px solid rgba(15,23,42,0.1);
+            border-radius:16px;box-shadow:0 18px 50px rgba(15,23,42,0.25);z-index:99999;display:none;
+            flex-direction:column;overflow:hidden;font-family:inherit;}
+        #copilotoPanel.abierto{display:flex;}
+        #copilotoHead{background:linear-gradient(135deg,#06b6d4,#0891b2);color:#fff;padding:12px 16px;
+            display:flex;align-items:center;justify-content:space-between;}
+        #copilotoHead .t{font-size:14px;font-weight:800;display:flex;align-items:center;gap:8px;}
+        #copilotoHead button{background:rgba(255,255,255,0.2);border:none;color:#fff;width:26px;height:26px;
+            border-radius:8px;cursor:pointer;font-size:16px;line-height:1;}
+        #copilotoMsgs{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;
+            background:#f8fafc;}
+        .cop-msg{max-width:85%;padding:9px 12px;border-radius:12px;font-size:13px;line-height:1.45;
+            white-space:pre-wrap;word-break:break-word;}
+        .cop-bot{align-self:flex-start;background:#fff;border:1px solid rgba(15,23,42,0.08);color:#0f172a;}
+        .cop-user{align-self:flex-end;background:#0891b2;color:#fff;}
+        .cop-refs{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}
+        .cop-ref{font-size:11px;font-weight:700;padding:3px 9px;border-radius:8px;border:1px solid rgba(8,145,178,0.4);
+            background:rgba(6,182,212,0.08);color:#0891b2;cursor:pointer;}
+        .cop-ref:hover{background:rgba(6,182,212,0.18);}
+        #copilotoQuick{padding:8px 12px;display:flex;flex-wrap:wrap;gap:6px;border-top:1px solid rgba(15,23,42,0.06);
+            background:#fff;}
+        #copilotoQuick button{font-size:11.5px;font-weight:600;padding:5px 10px;border-radius:10px;
+            border:1px solid rgba(15,23,42,0.12);background:#f1f5f9;color:#334155;cursor:pointer;}
+        #copilotoQuick button:hover{background:#e2e8f0;}
+        #copilotoInputRow{display:flex;gap:8px;padding:10px 12px;border-top:1px solid rgba(15,23,42,0.06);
+            background:#fff;}
+        #copilotoInput{flex:1;border:1px solid rgba(15,23,42,0.14);border-radius:10px;padding:8px 11px;
+            font-size:13px;outline:none;font-family:inherit;}
+        #copilotoInput:focus{border-color:#06b6d4;}
+        #copilotoSend{background:#0891b2;color:#fff;border:none;border-radius:10px;padding:0 14px;
+            font-weight:700;cursor:pointer;font-size:13px;}
+    </style>
+
+    <button id="copilotoBtn" onclick="copilotoToggle()" title="Copiloto de torre de control">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    </button>
+
+    <div id="copilotoPanel">
+        <div id="copilotoHead">
+            <span class="t">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"
+                     stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4M8 16h.01M16 16h.01"/></svg>
+                Copiloto de torre
+            </span>
+            <button onclick="copilotoToggle()" title="Cerrar">&times;</button>
+        </div>
+        <div id="copilotoMsgs"></div>
+        <div id="copilotoQuick">
+            <button onclick="copilotoPreguntar('resumen_flota',null,'Como va la flota?')">Como va la flota</button>
+            <button onclick="copilotoPreguntar('viajes_en_riesgo',null,'Quienes van en riesgo?')">En riesgo</button>
+            <button onclick="copilotoPreguntar('checkpoints_llegando',{minutos:15},'Quienes llegan a un punto en 15 min?')">Llegan en 15 min</button>
+            <button onclick="copilotoPreguntar('viajes_cerca_de_destino',{top_n:5},'Quien esta por llegar a destino?')">Por llegar a destino</button>
+            <button onclick="copilotoPreguntar('viajes_no_pasaron_punto',{orden:1},'Quienes no pasaron el primer punto?')">No pasaron el 1er punto</button>
+            <button onclick="copilotoPreguntar('viajes_sin_gps',null,'Viajes sin GPS')">Sin GPS</button>
+        </div>
+        <div id="copilotoInputRow">
+            <input id="copilotoInput" type="text" placeholder="Escribe una pregunta..."
+                   onkeydown="if(event.key==='Enter')copilotoEnviarLibre()">
+            <button id="copilotoSend" onclick="copilotoEnviarLibre()">Enviar</button>
+        </div>
+    </div>
+
+    <script>
+        let _copilotoIniciado = false;
+        function copilotoToggle(){
+            const p = document.getElementById('copilotoPanel');
+            const abierto = p.classList.toggle('abierto');
+            if (abierto && !_copilotoIniciado){
+                _copilotoIniciado = true;
+                copilotoAppend('Hola, soy el copiloto de la torre. Pregunta por la flota o usa los botones de abajo.', 'bot');
+            }
+            if (abierto) setTimeout(()=>{ const i=document.getElementById('copilotoInput'); if(i) i.focus(); }, 50);
+        }
+
+        function copilotoAppend(texto, who, references){
+            const cont = document.getElementById('copilotoMsgs');
+            const div = document.createElement('div');
+            div.className = 'cop-msg ' + (who === 'user' ? 'cop-user' : 'cop-bot');
+            div.textContent = texto;
+            if (references && references.length){
+                const refs = document.createElement('div');
+                refs.className = 'cop-refs';
+                references.forEach(r => {
+                    const b = document.createElement('span');
+                    b.className = 'cop-ref';
+                    b.textContent = 'Ver ' + (r.label || r.plate || r.numericId);
+                    b.onclick = () => copilotoVerViaje(r.numericId, r.plate);
+                    refs.appendChild(b);
+                });
+                div.appendChild(refs);
+            }
+            cont.appendChild(div);
+            cont.scrollTop = cont.scrollHeight;
+            return div;
+        }
+
+        async function _copilotoConsultar(payload, textoUsuario){
+            copilotoAppend(textoUsuario, 'user');
+            const pensando = copilotoAppend('Consultando...', 'bot');
+            try {
+                const resp = await fetch(`${API_BASE_URL}/assistant/ask`, {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                const data = await resp.json();
+                pensando.textContent = data.answer || 'Sin respuesta.';
+                if (data.references && data.references.length){
+                    const refs = document.createElement('div');
+                    refs.className = 'cop-refs';
+                    data.references.forEach(r => {
+                        const b = document.createElement('span');
+                        b.className = 'cop-ref';
+                        b.textContent = 'Ver ' + (r.label || r.plate || r.numericId);
+                        b.onclick = () => copilotoVerViaje(r.numericId, r.plate);
+                        refs.appendChild(b);
+                    });
+                    pensando.appendChild(refs);
+                }
+                const cont = document.getElementById('copilotoMsgs');
+                cont.scrollTop = cont.scrollHeight;
+            } catch (e) {
+                pensando.textContent = 'No pude conectar con el asistente.';
+                console.error('[copiloto]', e);
+            }
+        }
+
+        function copilotoPreguntar(tool, args, textoUsuario){
+            _copilotoConsultar({tool: tool, args: args || null}, textoUsuario || tool);
+        }
+
+        function copilotoEnviarLibre(){
+            const inp = document.getElementById('copilotoInput');
+            const q = (inp.value || '').trim();
+            if (!q) return;
+            inp.value = '';
+            _copilotoConsultar({question: q}, q);
+        }
+
+        function copilotoVerViaje(numericId, plate){
+            const trips = window._displayedTrips || [];
+            let idx = -1;
+            if (numericId != null) idx = trips.findIndex(t => String(t.vehicleNumericId) === String(numericId));
+            if (idx < 0 && plate) idx = trips.findIndex(t => String(t.plate||'').toUpperCase() === String(plate).toUpperCase());
+            if (idx >= 0 && typeof openTripInMap === 'function'){ openTripInMap(idx); return; }
+            copilotoAppend('No encontre ese viaje en la lista cargada. Abre la pestana "Viajes Activos" y reintenta.', 'bot');
+        }
+    </script>
+    <!-- ==================== fin COPILOTO ==================== -->
+
 </body>
 </html>
