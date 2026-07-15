@@ -18284,6 +18284,14 @@
         .cop-ref{font-size:11px;font-weight:700;padding:3px 9px;border-radius:8px;border:1px solid rgba(8,145,178,0.4);
             background:rgba(6,182,212,0.08);color:#0891b2;cursor:pointer;}
         .cop-ref:hover{background:rgba(6,182,212,0.18);}
+        .cop-act{font-size:11px;font-weight:700;padding:4px 11px;border-radius:8px;border:1px solid #f59e0b;
+            background:#fffbeb;color:#b45309;cursor:pointer;}
+        .cop-act:hover{background:#fef3c7;}
+        .cop-act:disabled{opacity:.5;cursor:default;}
+        .cop-sug{font-size:11px;font-weight:600;padding:3px 9px;border-radius:8px;border:1px dashed rgba(15,23,42,0.2);
+            background:#f8fafc;color:#475569;cursor:pointer;}
+        .cop-sug:hover{background:#f1f5f9;}
+        .cop-sug:disabled{opacity:.5;cursor:default;}
         #copilotoQuick{padding:8px 12px;display:flex;flex-wrap:wrap;gap:6px;border-top:1px solid rgba(15,23,42,0.06);
             background:#fff;}
         #copilotoQuick button{font-size:11.5px;font-weight:600;padding:5px 10px;border-radius:10px;
@@ -18330,6 +18338,9 @@
 
     <script>
         let _copilotoIniciado = false;
+        let _copilotoHistorial = [];   // {role, content} para multi-turno
+        let _copilotoOperador = '';    // nombre del operador (una vez por sesion)
+
         function copilotoToggle(){
             const p = document.getElementById('copilotoPanel');
             const abierto = p.classList.toggle('abierto');
@@ -18340,15 +18351,22 @@
             if (abierto) setTimeout(()=>{ const i=document.getElementById('copilotoInput'); if(i) i.focus(); }, 50);
         }
 
-        function copilotoAppend(texto, who, references){
+        function copilotoAppend(texto, who){
             const cont = document.getElementById('copilotoMsgs');
             const div = document.createElement('div');
             div.className = 'cop-msg ' + (who === 'user' ? 'cop-user' : 'cop-bot');
             div.textContent = texto;
-            if (references && references.length){
+            cont.appendChild(div);
+            cont.scrollTop = cont.scrollHeight;
+            return div;
+        }
+
+        // Renderiza referencias [Ver viaje], acciones [Confirmar...] y chips sugeridos
+        function copilotoRenderExtras(div, data){
+            if (data.references && data.references.length){
                 const refs = document.createElement('div');
                 refs.className = 'cop-refs';
-                references.forEach(r => {
+                data.references.forEach(r => {
                     const b = document.createElement('span');
                     b.className = 'cop-ref';
                     b.textContent = 'Ver ' + (r.label || r.plate || r.numericId);
@@ -18357,39 +18375,98 @@
                 });
                 div.appendChild(refs);
             }
-            cont.appendChild(div);
-            cont.scrollTop = cont.scrollHeight;
-            return div;
+            if (data.actions && data.actions.length){
+                const acts = document.createElement('div');
+                acts.className = 'cop-refs';
+                data.actions.forEach(a => {
+                    const b = document.createElement('span');
+                    b.className = 'cop-act';
+                    b.textContent = a.label || 'Confirmar operacion';
+                    b.onclick = () => copilotoConfirmarAccion(a);
+                    acts.appendChild(b);
+                });
+                div.appendChild(acts);
+            }
+            if (data.suggestions && data.suggestions.length){
+                const sug = document.createElement('div');
+                sug.className = 'cop-refs';
+                data.suggestions.forEach(s => {
+                    const b = document.createElement('span');
+                    b.className = 'cop-sug';
+                    b.textContent = s.label || s.question;
+                    b.onclick = () => { const q = s.question || s.label; _copilotoConsultar({question: q}, q); };
+                    sug.appendChild(b);
+                });
+                div.appendChild(sug);
+            }
+            document.getElementById('copilotoMsgs').scrollTop = 1e9;
         }
 
         async function _copilotoConsultar(payload, textoUsuario){
             copilotoAppend(textoUsuario, 'user');
+            _copilotoHistorial.push({role:'user', content: textoUsuario});
+            if (payload.question) payload.history = _copilotoHistorial.slice(-8);
             const pensando = copilotoAppend('Consultando...', 'bot');
             try {
                 const resp = await fetch(`${API_BASE_URL}/assistant/ask`, {
-                    method: 'POST',
-                    headers: {'Content-Type':'application/json'},
+                    method: 'POST', headers: {'Content-Type':'application/json'},
                     body: JSON.stringify(payload)
                 });
                 const data = await resp.json();
                 pensando.textContent = data.answer || 'Sin respuesta.';
-                if (data.references && data.references.length){
-                    const refs = document.createElement('div');
-                    refs.className = 'cop-refs';
-                    data.references.forEach(r => {
-                        const b = document.createElement('span');
-                        b.className = 'cop-ref';
-                        b.textContent = 'Ver ' + (r.label || r.plate || r.numericId);
-                        b.onclick = () => copilotoVerViaje(r.numericId, r.plate);
-                        refs.appendChild(b);
-                    });
-                    pensando.appendChild(refs);
-                }
-                const cont = document.getElementById('copilotoMsgs');
-                cont.scrollTop = cont.scrollHeight;
+                _copilotoHistorial.push({role:'assistant', content: data.answer || ''});
+                copilotoRenderExtras(pensando, data);
             } catch (e) {
                 pensando.textContent = 'No pude conectar con el asistente.';
                 console.error('[copiloto]', e);
+            }
+        }
+
+        // Paso de confirmacion de una operacion delicada: pide el nombre del operador
+        function copilotoConfirmarAccion(action){
+            const cont = document.getElementById('copilotoMsgs');
+            const div = document.createElement('div');
+            div.className = 'cop-msg cop-bot';
+            div.textContent = (action.label || 'Confirmar operacion') + '. Ingresa tu nombre de operador y confirma:';
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;gap:6px;margin-top:8px;';
+            const inp = document.createElement('input');
+            inp.type = 'text'; inp.placeholder = 'Nombre del operador'; inp.value = _copilotoOperador;
+            inp.style.cssText = 'flex:1;border:1px solid rgba(15,23,42,0.14);border-radius:8px;padding:6px 9px;font-size:12px;';
+            const ok = document.createElement('button');
+            ok.textContent = 'Confirmar'; ok.className = 'cop-act';
+            const no = document.createElement('button');
+            no.textContent = 'Cancelar'; no.className = 'cop-sug';
+            const estado = document.createElement('div');
+            estado.style.cssText = 'font-size:11px;margin-top:5px;color:#64748b;';
+            ok.onclick = () => {
+                const op = (inp.value || '').trim();
+                if (!op){ estado.textContent = 'Escribe tu nombre de operador.'; estado.style.color = '#dc2626'; inp.focus(); return; }
+                _copilotoOperador = op;
+                ok.disabled = true; no.disabled = true; inp.disabled = true;
+                estado.style.color = '#64748b'; estado.textContent = 'Ejecutando...';
+                copilotoEjecutarAccion(action, op, estado);
+            };
+            no.onclick = () => { row.remove(); estado.textContent = 'Operacion cancelada.'; };
+            row.appendChild(inp); row.appendChild(ok); row.appendChild(no);
+            div.appendChild(row); div.appendChild(estado);
+            cont.appendChild(div); cont.scrollTop = cont.scrollHeight;
+            setTimeout(()=>inp.focus(), 50);
+        }
+
+        async function copilotoEjecutarAccion(action, operador, estadoEl){
+            try {
+                const resp = await fetch(`${API_BASE_URL}/assistant/action`, {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({action: action.action, numericId: action.numericId, operador: operador})
+                });
+                const data = await resp.json();
+                estadoEl.textContent = data.message || (data.success ? 'Operacion realizada.' : 'No se pudo realizar.');
+                estadoEl.style.color = data.success ? '#16a34a' : '#dc2626';
+            } catch (e) {
+                estadoEl.textContent = 'No pude ejecutar la operacion.';
+                estadoEl.style.color = '#dc2626';
+                console.error('[copiloto-action]', e);
             }
         }
 
