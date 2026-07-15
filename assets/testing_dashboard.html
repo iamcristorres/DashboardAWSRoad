@@ -16503,11 +16503,13 @@
                 const staticCps = (currentMapTripCheckpoints || []);
 
                 let dynamicMap = {};
+                let forecastSummary = null;
                 if (resp.ok) {
                     const data = await resp.json();
                     (data.checkpoints || []).forEach(cp => {
                         dynamicMap[String(cp.checkpointId)] = cp;
                     });
+                    forecastSummary = data.forecast_summary || null;
                 }
 
                 // Combinar estaticos con dinamicos
@@ -16534,6 +16536,15 @@
                         passMethod:        scp.passMethod || dyn.passMethod || null,
                         approachTime:      scp.approachTime || dyn.approachTime || null,
                         dwellMinutes:      scp.dwellMinutes != null ? scp.dwellMinutes : (dyn.dwellMinutes != null ? dyn.dwellMinutes : null),
+                        // Pronostico de ETA (viene del endpoint /checkpoints, solo dyn).
+                        // projectedEta/forecastStatus solo existen en puntos pendientes con
+                        // limite no vencido (regla temporal aplicada en la API).
+                        projectedEta:       dyn.projectedEta || null,
+                        forecastStatus:     dyn.forecastStatus || null,
+                        remainingKm:        dyn.remainingKm != null ? dyn.remainingKm : null,
+                        approximate:        dyn.approximate || false,
+                        offRoute:           dyn.offRoute || false,
+                        predictedPassageAt: dyn.predictedPassageAt || null,
                     };
                 });
 
@@ -16667,11 +16678,39 @@
                            </div>`
                         : '';
 
-                    const _filaTiempo = (label, valor, color) => `
-                        <div>
+                    const _filaTiempo = (label, valor, color, title) => `
+                        <div${title ? ` title="${title}"` : ''}>
                             <span style="color:#94a3b8;font-size:11px;font-weight:600;text-transform:uppercase;">${label}: </span>
                             <span style="font-weight:700;color:${color || '#0f172a'};">${valor}</span>
                         </div>`;
+
+                    // Pronostico de ETA (solo puntos pendientes con limite no vencido).
+                    // Verbos en futuro para diferenciarlo del estado real (hecho).
+                    const _fcColor = { on_time: '#16a34a', tight: '#f59e0b', at_risk: '#dc2626' };
+                    const _fcLabel = { on_time: 'llega a tiempo', tight: 'llega justo', at_risk: 'llega tarde' };
+                    let etaBlock = '';
+                    if (cp.forecastStatus && cp.forecastStatus !== 'no_aplica' && !cp.passedAt) {
+                        const fcCol = _fcColor[cp.forecastStatus] || '#64748b';
+                        const fcLab = _fcLabel[cp.forecastStatus] || cp.forecastStatus;
+                        const etaHora = cp.projectedEta ? cp.projectedEta.replace('T', ' ').substring(0, 16) : '?';
+                        const kmNota = (cp.remainingKm != null)
+                            ? `<span style="color:#94a3b8;font-size:10px;"> · ${Math.round(Number(cp.remainingKm) * 10) / 10} km</span>`
+                            : '';
+                        const aproxNota = (cp.approximate || cp.offRoute)
+                            ? `<span style="color:#94a3b8;font-size:10px;font-style:italic;"> · ${cp.offRoute ? 'fuera de ruta' : 'aprox'}</span>`
+                            : '';
+                        etaBlock = `
+                        <div title="Hora de llegada estimada, recalculada con la posicion y velocidad actuales del GPS. Es una aproximacion y puede cambiar.">
+                            <span style="color:#94a3b8;font-size:11px;font-weight:600;text-transform:uppercase;">ETA: </span>
+                            <span style="font-weight:700;color:${fcCol};">~${etaHora}</span>
+                            <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;background:${fcCol}1a;color:${fcCol};margin-left:4px;">${fcLab}</span>
+                            ${kmNota}${aproxNota}
+                        </div>`;
+                    }
+                    // Predicho: lo que el sistema estimo al momento del paso (validacion vs real).
+                    const predichoStr = cp.predictedPassageAt
+                        ? cp.predictedPassageAt.replace('T', ' ').substring(0, 16)
+                        : null;
 
                     return `
                     <div onclick="highlightCheckpointOnMap(${cp.order != null ? cp.order : idx})" title="Ver en el mapa"
@@ -16695,26 +16734,32 @@
                             </div>
                             ${behBlock}
                             <div style="font-size:12px;color:#475569;display:flex;flex-direction:column;gap:3px;">
-                                <div>
+                                <div title="Hora que se planeo para el paso al crear la ruta. Fija.">
                                     <span style="color:#94a3b8;font-size:11px;font-weight:600;text-transform:uppercase;">Estimado: </span>
                                     <span style="font-weight:600;">${estimadaStr}</span>${toleranciaStr}
                                 </div>
                                 ${deadlineStr && !cp.passedAt ? `
-                                <div>
+                                <div title="Estimado mas la gabela. Despues de esta hora el paso se considera tarde.">
                                     <span style="color:#94a3b8;font-size:11px;font-weight:600;text-transform:uppercase;">Limite: </span>
                                     <span style="color:#f59e0b;font-weight:600;">${deadlineStr}</span>
                                 </div>` : ''}
+                                ${etaBlock}
                                 ${pasadaStr ? `
-                                <div>
+                                <div title="Hora real en que el vehiculo cruzo el punto.">
                                     <span style="color:#94a3b8;font-size:11px;font-weight:600;text-transform:uppercase;">Paso a las: </span>
                                     <span style="font-weight:700;color:${statusColor};">${pasadaStr}</span>
                                 </div>` : ''}
-                                ${entradaStr ? _filaTiempo('Entrada', entradaStr, '#2563eb') : ''}
-                                ${salidaStr ? _filaTiempo('Salida', salidaStr, '#0891b2') : ''}
-                                ${pasoStr ? _filaTiempo('Paso' + (cp.passMethod ? ' (' + cp.passMethod + ')' : ''), pasoStr, statusColor) : ''}
-                                ${dwellStr ? _filaTiempo('Permanencia', dwellStr, '#7c3aed') : ''}
+                                ${predichoStr ? `
+                                <div title="Lo que el sistema calculo que iba a llegar, congelado al momento del paso. Sirve para validar que el calculo es acertado.">
+                                    <span style="color:#94a3b8;font-size:11px;font-weight:600;text-transform:uppercase;">Predicho: </span>
+                                    <span style="font-weight:700;color:#8b5cf6;">${predichoStr}</span>
+                                </div>` : ''}
+                                ${entradaStr ? _filaTiempo('Entrada', entradaStr, '#2563eb', 'Hora en que entro al geofence del punto.') : ''}
+                                ${salidaStr ? _filaTiempo('Salida', salidaStr, '#0891b2', 'Hora en que salio del geofence del punto.') : ''}
+                                ${pasoStr ? _filaTiempo('Paso' + (cp.passMethod ? ' (' + cp.passMethod + ')' : ''), pasoStr, statusColor, 'Momento del cruce por el punto (directo o interpolado).') : ''}
+                                ${dwellStr ? _filaTiempo('Permanencia', dwellStr, '#7c3aed', 'Minutos que estuvo dentro del punto.') : ''}
                                 ${aproxStr
-                                    ? _filaTiempo('Aproximacion', aproxStr, '#0ea5e9')
+                                    ? _filaTiempo('Aproximacion', aproxStr, '#0ea5e9', 'Cuando se detecto que se acercaba al punto.')
                                     : (beh.approach ? `
                                 <div>
                                     <span style="color:#94a3b8;font-size:11px;font-weight:600;text-transform:uppercase;">Aproximacion: </span>
@@ -16734,6 +16779,8 @@
                         ${totalMissed > 0 ? `<span style="font-size:11px;padding:1px 8px;border-radius:10px;background:#fef2f2;color:#dc2626;font-weight:600;">${totalMissed} incumplido${totalMissed !== 1 ? 's' : ''}</span>` : ''}
                         ${totalSinGps > 0 ? `<span style="font-size:11px;padding:1px 8px;border-radius:10px;background:#f1f5f9;color:#64748b;font-weight:600;">${totalSinGps} sin GPS</span>` : ''}
                         ${totalPending > 0 ? `<span style="font-size:11px;padding:1px 8px;border-radius:10px;background:#f8fafc;color:#94a3b8;font-weight:600;">${totalPending} pendiente${totalPending !== 1 ? 's' : ''}</span>` : ''}
+                        ${(forecastSummary && forecastSummary.checkpointsAtRisk > 0) ? `<span title="Puntos pendientes cuya ETA proyecta pasar despues del limite." style="font-size:11px;padding:1px 8px;border-radius:10px;background:#fef2f2;color:#dc2626;font-weight:700;">${forecastSummary.checkpointsAtRisk} en riesgo (ETA)</span>` : ''}
+                        ${(forecastSummary && forecastSummary.checkpointsTight > 0) ? `<span title="Puntos pendientes cuya ETA cae entre el estimado y el limite (van justos)." style="font-size:11px;padding:1px 8px;border-radius:10px;background:#fffbeb;color:#b45309;font-weight:700;">${forecastSummary.checkpointsTight} ajustado${forecastSummary.checkpointsTight !== 1 ? 's' : ''} (ETA)</span>` : ''}
                     </div>
                     ${rows}
                 `;
