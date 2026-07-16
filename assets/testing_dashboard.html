@@ -18458,7 +18458,8 @@
             try {
                 const resp = await fetch(`${API_BASE_URL}/assistant/action`, {
                     method: 'POST', headers: {'Content-Type':'application/json'},
-                    body: JSON.stringify({action: action.action, numericId: action.numericId, operador: operador})
+                    body: JSON.stringify({action: action.action, numericId: action.numericId,
+                                          numericIds: action.numericIds, operador: operador})
                 });
                 const data = await resp.json();
                 estadoEl.textContent = data.message || (data.success ? 'Operacion realizada.' : 'No se pudo realizar.');
