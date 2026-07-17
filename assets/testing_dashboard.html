@@ -18303,6 +18303,10 @@
             white-space:pre-wrap;word-break:break-word;}
         .cop-bot{align-self:flex-start;background:#fff;border:1px solid rgba(15,23,42,0.08);color:#0f172a;}
         .cop-user{align-self:flex-end;background:#0A84FF;color:#fff;}
+        .cop-brand{font-weight:800;}
+        .cop-brand b{color:#0A84FF;font-weight:800;}
+        .cop-bot strong{font-weight:700;color:#0f172a;}
+        .cop-plate{color:#0A84FF;font-weight:700;}
         .cop-refs{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}
         .cop-ref{font-size:11px;font-weight:700;padding:3px 9px;border-radius:8px;border:1px solid rgba(8,145,178,0.4);
             background:rgba(6,182,212,0.08);color:#0891b2;cursor:pointer;}
@@ -18376,14 +18380,29 @@
             if (abierto) setTimeout(()=>{ const i=document.getElementById('copilotoInput'); if(i) i.focus(); }, 50);
         }
 
+        function copilotoEscapar(s){
+            return String(s == null ? '' : s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+        }
+        // Formatea el texto del bot: escapa HTML, negrita **...**, resalta la marca IAvansat
+        // (IA azul + resto negrita) y las placas; convierte saltos de linea a <br>.
+        function copilotoFmt(texto){
+            let h = copilotoEscapar(texto);
+            h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            h = h.replace(/\bIAvansat\b/g, '<span class="cop-brand"><b>IA</b>vansat</span>');
+            h = h.replace(/\b([A-Z]{3}\d{3})\b/g, '<span class="cop-plate">$1</span>');
+            h = h.replace(/\n/g, '<br>');
+            return h;
+        }
+
         function copilotoAppend(texto, who){
             const cont = document.getElementById('copilotoMsgs');
             const div = document.createElement('div');
             div.className = 'cop-msg ' + (who === 'user' ? 'cop-user' : 'cop-bot');
-            div.textContent = texto;
             if (who === 'user'){
+                div.textContent = texto;
                 cont.appendChild(div);
             } else {
+                div.innerHTML = copilotoFmt(texto);
                 // Mensaje del bot: fila con avatar del robot IAvansat + burbuja
                 const row = document.createElement('div');
                 row.className = 'cop-row';
@@ -18467,7 +18486,7 @@
                     const fallo = !data || data.source === 'error' || !(data.answer && String(data.answer).trim());
                     if (!fallo){
                         if (pensando._ava) pensando._ava.classList.remove('think');
-                        pensando.textContent = data.answer;
+                        pensando.innerHTML = copilotoFmt(data.answer);
                         _copilotoHistorial.push({role:'assistant', content: data.answer || ''});
                         copilotoRenderExtras(pensando, data);
                         return;
