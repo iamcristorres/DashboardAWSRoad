@@ -6303,6 +6303,70 @@
             }
         }
 
+        // Estado de la bandera notify_bell de un tier.
+        // Regla vigente en las lambdas de alerta: el evento solo se envia al webhook de
+        // AVL360 si el tier trae notify_bell habilitado. Con el campo ausente o en 0 no
+        // se envia; el EVENT# se registra igual en DynamoDB.
+        function estadoNotifyBell(tier) {
+            const valor = tier ? tier.notify_bell : undefined;
+            if (valor === true || valor === 1 || valor === '1') {
+                return {
+                    envia:  true,
+                    icono:  'bell',
+                    texto:  'Envia',
+                    color:  '#15803d',
+                    fondo:  '#f0fdf4',
+                    borde:  '#bbf7d0',
+                    ayuda:  'notify_bell habilitado: las alertas de este tier SI se envian al webhook de AVL360.'
+                };
+            }
+            if (valor === false || valor === 0 || valor === '0') {
+                return {
+                    envia:  false,
+                    icono:  'bell-off',
+                    texto:  'No envia',
+                    color:  '#475569',
+                    fondo:  '#f1f5f9',
+                    borde:  '#cbd5e1',
+                    ayuda:  'notify_bell deshabilitado: las alertas de este tier NO se envian al webhook de AVL360.'
+                };
+            }
+            return {
+                envia:  false,
+                icono:  'bell-off',
+                texto:  'Sin dato',
+                color:  '#b45309',
+                fondo:  '#fffbeb',
+                borde:  '#fde68a',
+                ayuda:  'El tier no trae el campo notify_bell (viaje registrado antes del cambio). Sin el campo tampoco se envia al webhook de AVL360.'
+            };
+        }
+
+        // Resumen por evento: cuantos de sus tiers notifican al webhook de AVL360.
+        function resumenNotifyBell(tiers, conCampana) {
+            const total = (tiers || []).length;
+            if (!total) return '';
+            const todos = conCampana === total;
+            const ninguno = conCampana === 0;
+            const color = todos ? '#15803d' : (ninguno ? '#475569' : '#b45309');
+            const fondo = todos ? '#f0fdf4' : (ninguno ? '#f1f5f9' : '#fffbeb');
+            const borde = todos ? '#bbf7d0' : (ninguno ? '#cbd5e1' : '#fde68a');
+            const icono = ninguno ? 'bell-off' : 'bell';
+            const texto = todos ? 'Notifica a AVL360'
+                : (ninguno ? 'No notifica a AVL360' : `Notifica ${conCampana} de ${total} tiers`);
+            const ayuda = ninguno
+                ? 'Ningun tier de este evento envia alertas al webhook de AVL360.'
+                : (todos
+                    ? 'Todos los tiers de este evento envian sus alertas al webhook de AVL360.'
+                    : `Solo ${conCampana} de ${total} tiers envian sus alertas al webhook de AVL360.`);
+            return `<span title="${ayuda}"
+                          style="font-size:10px;font-weight:600;color:${color};background:${fondo};
+                                 border:1px solid ${borde};border-radius:10px;padding:2px 8px;
+                                 display:inline-flex;align-items:center;gap:4px;cursor:help;">
+                        <i data-lucide="${icono}" style="width:12px;height:12px;flex:none;"></i>${texto}
+                    </span>`;
+        }
+
         function populateTripInfoPanel(trip) {
             _tipCurrentTrip = trip;
 
@@ -6433,15 +6497,19 @@
                     const unidadTier = ev.event_key === 'RouteDeviation' ? 'metros'
                         : ev.event_key === 'Stop' ? 'min'
                         : 'km/h';
-                    const tiers = (ev.tiers || []).map(t => {
+                    const listaTiers = ev.tiers || [];
+                    const conCampana = listaTiers.filter(t => estadoNotifyBell(t).envia).length;
+                    const tiers = listaTiers.map(t => {
                         const bgColor  = t.tier_id === 'critical' ? '#fef2f2' : t.tier_id === 'moderate' ? '#fffbeb' : '#f0fdf4';
                         const txtColor = t.tier_id === 'critical' ? '#dc2626' : t.tier_id === 'moderate' ? '#d97706' : '#16a34a';
                         const rango    = `${t.min_threshold !== undefined ? t.min_threshold : '?'} – ${t.max_threshold !== undefined ? t.max_threshold : '?'} ${unidadTier}`;
                         const notif    = t.notify_after_minutes !== undefined && t.notify_after_minutes !== null
                             ? `${t.notify_after_minutes} min` : '-';
                         const torre    = t.tower_enabled === true || t.tower_enabled === 1 ? 'Si' : (t.tower_enabled === false || t.tower_enabled === 0 ? 'No' : '-');
-                        const torreColor = (t.tower_enabled === true || t.tower_enabled === 1) ? '#16a34a' : '#94a3b8';
-                        return `<div style="display:grid;grid-template-columns:90px 110px 100px 80px;gap:6px;align-items:center;margin-top:5px;padding:4px 6px;border-radius:6px;background:#f8fafc;">
+                        // Verde 700 y slate 500: el 600/400 previo no alcanzaba 4.5:1 de contraste a 11px
+                        const torreColor = (t.tower_enabled === true || t.tower_enabled === 1) ? '#15803d' : '#64748b';
+                        const campana  = estadoNotifyBell(t);
+                        return `<div style="display:grid;grid-template-columns:90px 110px 100px 70px 112px;gap:6px;align-items:center;margin-top:5px;padding:4px 6px;border-radius:6px;background:#f8fafc;">
                             <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;text-align:center;background:${bgColor};color:${txtColor};">${t.tier_id || '-'}</span>
                             <span style="font-size:11px;color:#475569;">${rango}</span>
                             <span style="font-size:11px;color:#475569;display:flex;align-items:center;gap:3px;">
@@ -6450,18 +6518,29 @@
                             <span style="font-size:11px;font-weight:600;color:${torreColor};display:flex;align-items:center;gap:3px;">
                                 <span style="font-size:10px;color:#94a3b8;font-weight:400;">Torre</span> ${torre}
                             </span>
+                            <span title="${campana.ayuda}"
+                                  style="font-size:11px;font-weight:600;color:${campana.color};background:${campana.fondo};
+                                         border:1px solid ${campana.borde};border-radius:6px;padding:2px 7px;
+                                         display:inline-flex;align-items:center;gap:5px;justify-content:center;cursor:help;">
+                                <i data-lucide="${campana.icono}" style="width:13px;height:13px;flex:none;"></i>${campana.texto}
+                            </span>
                         </div>`;
                     }).join('');
-                    const tiersHeader = tiers ? `<div style="display:grid;grid-template-columns:90px 110px 100px 80px;gap:6px;margin-top:6px;padding:0 6px;">
+                    const tiersHeader = tiers ? `<div style="display:grid;grid-template-columns:90px 110px 100px 70px 112px;gap:6px;margin-top:6px;padding:0 6px;">
                         <span style="font-size:10px;color:#94a3b8;font-weight:600;text-transform:uppercase;">Tier</span>
                         <span style="font-size:10px;color:#94a3b8;font-weight:600;text-transform:uppercase;">Rango</span>
                         <span style="font-size:10px;color:#94a3b8;font-weight:600;text-transform:uppercase;">Notif. (min)</span>
                         <span style="font-size:10px;color:#94a3b8;font-weight:600;text-transform:uppercase;">Torre</span>
+                        <span style="font-size:10px;color:#94a3b8;font-weight:600;text-transform:uppercase;text-align:center;"
+                              title="Bandera notify_bell del tier. Decide si la alerta se envia al webhook de AVL360.">Webhook AVL360</span>
                     </div>` : '';
                     return `<div style="border:1px solid rgba(139,92,246,0.15);border-radius:10px;padding:12px;margin-bottom:8px;">
-                        <div style="font-size:13px;font-weight:700;color:#7c3aed;margin-bottom:4px;">${ev.event_name || ev.event_key || '-'}</div>
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">
+                            <span style="font-size:13px;font-weight:700;color:#7c3aed;">${ev.event_name || ev.event_key || '-'}</span>
+                            ${resumenNotifyBell(listaTiers, conCampana)}
+                        </div>
                         <div style="font-size:11px;color:#94a3b8;margin-bottom:2px;">Clave: ${ev.event_key || '-'}</div>
-                        ${tiersHeader}${tiers}
+                        <div style="overflow-x:auto;">${tiersHeader}${tiers}</div>
                     </div>`;
                 }).join('');
             document.getElementById('tipEventosContent').innerHTML = evHtml;
@@ -10006,7 +10085,10 @@
             if (alert.NotificationAVL360 !== undefined && alert.NotificationAVL360 !== null) {
                 const notifOk = alert.NotificationAVL360 === true;
                 const tieneIntentoReal = !!(alert.NotificationAVL360ErrorMsg || alert.NotificationAVL360StatusCode != null || alert.NotificationAVL360AttemptedAt);
-                const disponibleDesde = (!notifOk && !tieneIntentoReal) ? getProximoEnvioDisponible(alert) : null;
+                // Campana del tier apagada: la lambda no envia al webhook, asi que no se
+                // calcula ni se muestra el "proximo envio disponible" (nunca ocurrira).
+                const envioDeshabilitado = !notifOk && !tieneIntentoReal && getNotifyBellAlerta(alert) === false;
+                const disponibleDesde = (!notifOk && !tieneIntentoReal && !envioDeshabilitado) ? getProximoEnvioDisponible(alert) : null;
                 let notifColor, notifLabel;
                 if (notifOk) {
                     notifColor = '#059669';
@@ -10014,6 +10096,9 @@
                 } else if (tieneIntentoReal) {
                     notifColor = '#dc2626';
                     notifLabel = 'Error al enviar';
+                } else if (envioDeshabilitado) {
+                    notifColor = '#64748b';
+                    notifLabel = 'Envio deshabilitado: campana (notify_bell) apagada en este tier';
                 } else if (disponibleDesde) {
                     notifColor = '#d97706';
                     notifLabel = 'En espera (tiempo minimo entre notificaciones del tier)';
@@ -10726,6 +10811,26 @@
             return tier ? Number(tier.notify_after_minutes || 0) : 0;
         }
 
+        // Bandera notify_bell aplicable a una alerta: decide si el evento se envia al
+        // webhook de AVL360. Prioriza NotifyBell del propio EVENT# (lo escribe la lambda
+        // al detectar el evento, es el valor vigente en ese momento); si el evento es
+        // anterior a ese cambio, cae al tier del viaje (currentMapTripEventParams).
+        // Retorna true (envia), false (no envia) o null (sin informacion suficiente).
+        function getNotifyBellAlerta(alert) {
+            var directo = alert ? alert.NotifyBell : undefined;
+            if (directo === true || directo === 1 || directo === '1') return true;
+            if (directo === false || directo === 0 || directo === '0') return false;
+
+            var ev = (currentMapTripEventParams || []).find(function(e) { return e.event_key === (alert && alert.EventType); });
+            if (!ev) return null;
+            var tier = (ev.tiers || []).find(function(t) { return t.tier_id === (alert && alert.TierId); });
+            if (!tier) return null;
+            var v = tier.notify_bell;
+            if (v === true || v === 1 || v === '1') return true;
+            if (v === false || v === 0 || v === '0') return false;
+            return null;
+        }
+
         // Si una alerta no registra intento real de envio, calcula desde cuando vuelve
         // a estar disponible el envio, en base al cooldown del tier (notify_after_minutes)
         // y la ultima notificacion exitosa del mismo event_key+tier_id. Las lambdas omiten
@@ -10786,6 +10891,19 @@
                     };
                 }
 
+                // Con la campana del tier apagada la lambda nunca envia al webhook: no
+                // aplica cooldown ni "proximo envio disponible", el envio esta descartado.
+                if (getNotifyBellAlerta(alert) === false) {
+                    return {
+                        texto: 'Envio deshabilitado',
+                        color: '#64748b',
+                        bg: 'rgba(100,116,139,0.12)',
+                        border: 'rgba(100,116,139,0.3)',
+                        detalle: 'La campana (notify_bell) esta apagada para este tier: la alerta se registra pero no se envia al webhook de AVL360.',
+                        deshabilitado: true
+                    };
+                }
+
                 // Sin intento real registrado: lo mas probable es que la lambda haya omitido
                 // el envio por el cooldown configurado en el tier (notify_after_minutes)
                 var disponibleDesde = getProximoEnvioDisponible(alert);
@@ -10808,6 +10926,16 @@
                     bg: 'rgba(148,163,184,0.12)',
                     border: 'rgba(148,163,184,0.3)',
                     detalle: 'No se intento el envio a AVL360 para este evento'
+                };
+            }
+            if (getNotifyBellAlerta(alert) === false) {
+                return {
+                    texto: 'Envio deshabilitado',
+                    color: '#64748b',
+                    bg: 'rgba(100,116,139,0.12)',
+                    border: 'rgba(100,116,139,0.3)',
+                    detalle: 'La campana (notify_bell) esta apagada para este tier: la alerta se registra pero no se envia al webhook de AVL360.',
+                    deshabilitado: true
                 };
             }
             return {
