@@ -3849,6 +3849,16 @@
                                       font-size:13px;outline:none;box-sizing:border-box;"
                                onfocus="this.style.borderColor='#ef4444'"
                                onblur="this.style.borderColor='#d1d5db'">
+                        <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin:14px 0 6px;">
+                            Observacion
+                        </label>
+                        <textarea id="mcvObservation" rows="3" maxlength="1000"
+                                  placeholder="Motivo del cierre (opcional)"
+                                  style="width:100%;padding:10px 14px;border:1px solid #d1d5db;border-radius:10px;
+                                         font-size:13px;outline:none;box-sizing:border-box;resize:vertical;
+                                         font-family:inherit;"
+                                  onfocus="this.style.borderColor='#ef4444'"
+                                  onblur="this.style.borderColor='#d1d5db'"></textarea>
                         <div id="mcvError" style="display:none;color:#ef4444;font-size:11px;margin-top:4px;"></div>
                     </div>
                     <div style="display:flex;gap:10px;">
@@ -5988,6 +5998,7 @@
             document.getElementById('mcmSubtitle').textContent =
                 count + ' viaje' + (count !== 1 ? 's' : '') + ' seran cerrados.';
             document.getElementById('mcmClosedBy').value = '';
+            document.getElementById('mcmObservation').value = '';
             document.getElementById('mcmError').style.display = 'none';
             document.getElementById('mcmProgressWrap').style.display = 'none';
             document.getElementById('mcmProgressBar').style.width = '0%';
@@ -6018,8 +6029,9 @@
         }
 
         async function confirmarCierreMasivo() {
-            const closedBy = document.getElementById('mcmClosedBy').value.trim();
-            const errEl    = document.getElementById('mcmError');
+            const closedBy    = document.getElementById('mcmClosedBy').value.trim();
+            const observacion = document.getElementById('mcmObservation').value.trim();
+            const errEl       = document.getElementById('mcmError');
 
             if (!closedBy) {
                 errEl.textContent = 'Ingrese el nombre del operador que cierra los viajes.';
@@ -6047,10 +6059,12 @@
                     'Cerrando: ' + (meta.plate || id) + ' (' + (i + 1) + '/' + total + ')...';
 
                 try {
+                    const cuerpo = { closed_by: closedBy };
+                    if (observacion) cuerpo.observation = observacion;
                     const res = await fetch(`${API_BASE_URL}/trips/${id}/close`, {
                         method: 'PATCH',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ closed_by: closedBy })
+                        body: JSON.stringify(cuerpo)
                     });
                     const data = await res.json();
                     if (res.ok && data.success) {
@@ -6127,6 +6141,7 @@
             const manifest = currentMapTripManifest || '-';
             document.getElementById('mcvSubtitulo').textContent = plate + ' · Manifiesto: ' + manifest;
             document.getElementById('mcvClosedBy').value = '';
+            document.getElementById('mcvObservation').value = '';
             document.getElementById('mcvError').style.display = 'none';
             const btn = document.getElementById('mcvConfirmBtn');
             btn.disabled = false;
@@ -6140,8 +6155,9 @@
         }
 
         async function confirmarCierreViaje() {
-            const closedBy = document.getElementById('mcvClosedBy').value.trim();
-            const errEl    = document.getElementById('mcvError');
+            const closedBy    = document.getElementById('mcvClosedBy').value.trim();
+            const observacion = document.getElementById('mcvObservation').value.trim();
+            const errEl       = document.getElementById('mcvError');
             if (!closedBy) {
                 errEl.textContent = 'El responsable del cierre es obligatorio.';
                 errEl.style.display = 'block';
@@ -6154,10 +6170,12 @@
             btn.textContent = 'Cerrando...';
 
             try {
+                const cuerpo = { closed_by: closedBy };
+                if (observacion) cuerpo.observation = observacion;
                 const res = await fetch(`${API_BASE_URL}/trips/${currentMapTripNumericId}/close`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ closed_by: closedBy }),
+                    body: JSON.stringify(cuerpo),
                 });
                 const data = await res.json();
 
@@ -17492,6 +17510,10 @@
                 const dest     = (t.destination && (t.destination.name || t.destination.code)) || t.destinationCity || '-';
                 const closedAt = t.closedAt ? t.closedAt.replace('T', ' ').substring(0, 16).replace('-05:00', '') : '-';
                 const closedBy = t.closedBy || '-';
+                const obs      = (t.closedObservation || '').trim();
+                const obsHtml  = obs
+                    ? `<div title="${escapeHtml(obs)}" style="font-size:11px;color:rgba(15,23,42,0.5);margin-top:2px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(obs)}</div>`
+                    : '';
                 const numId    = String(t.vehicleNumericId || '');
                 const safeP    = (t.plate || '').replace(/'/g, "\\'");
                 const safeM    = (t.manifest || '').replace(/'/g, "\\'");
@@ -17509,7 +17531,7 @@
                     <td style="padding:10px 14px;font-size:12px;color:rgba(15,23,42,0.6);">${t.companyName || t.companyNIT || '-'}</td>
                     <td style="padding:10px 14px;font-size:12px;color:rgba(15,23,42,0.6);max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${origin}">${origin}</td>
                     <td style="padding:10px 14px;font-size:12px;color:rgba(15,23,42,0.6);max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${dest}">${dest}</td>
-                    <td style="padding:10px 14px;font-size:12px;">${closedBy}</td>
+                    <td style="padding:10px 14px;font-size:12px;">${closedBy}${obsHtml}</td>
                     <td style="padding:10px 14px;font-size:12px;white-space:nowrap;">${closedAt}</td>
                     <td style="padding:10px 14px;text-align:center;">
                         <div style="display:flex;gap:6px;justify-content:center;flex-wrap:nowrap;">
@@ -17884,7 +17906,7 @@
             }
             const headers = [
                 'Placa','Manifiesto','VehicleNumericID','Empresa','Conductor',
-                'Origen','Destino','Cerrado por','Fecha Cierre','Fecha Registro'
+                'Origen','Destino','Cerrado por','Fecha Cierre','Observacion','Fecha Registro'
             ];
             const rows = _closedTripsData.map(t => [
                 t.plate || '',
@@ -17896,6 +17918,7 @@
                 t.destinationCity || '',
                 t.closedBy || '',
                 t.closedAt ? t.closedAt.replace('T', ' ').substring(0, 16) : '',
+                t.closedObservation || '',
                 t.registeredAt ? t.registeredAt.replace('T', ' ').substring(0, 16) : '',
             ].map(_csvCell).join(';'));
             const csv = [headers.map(_csvCell).join(';'), ...rows].join('\r\n');
@@ -18216,6 +18239,12 @@
                 <input type="text" id="mcmClosedBy" placeholder="Nombre del operador"
                     style="width:100%;padding:12px 16px;border:2px solid rgba(239,68,68,0.3);border-radius:12px;font-size:14px;background:white;outline:none;box-sizing:border-box;"
                     onkeydown="if(event.key==='Enter') confirmarCierreMasivo()">
+            </div>
+
+            <div style="margin-bottom:20px;">
+                <label style="display:block;font-size:13px;font-weight:600;color:rgba(15,23,42,0.7);margin-bottom:8px;">Observacion (opcional, se aplica a todos)</label>
+                <textarea id="mcmObservation" rows="3" maxlength="1000" placeholder="Motivo del cierre"
+                    style="width:100%;padding:12px 16px;border:2px solid rgba(239,68,68,0.3);border-radius:12px;font-size:14px;background:white;outline:none;box-sizing:border-box;resize:vertical;font-family:inherit;"></textarea>
             </div>
 
             <div style="margin-bottom:20px;">
