@@ -6607,11 +6607,31 @@
             const freightId = trip.freightId || trip.tripId;
             if (!freightId) return;
             try {
-                const resp = await fetch(`${API_BASE_URL}/trips/by-freight/${encodeURIComponent(freightId)}`);
+                // El freightId de AVL360 NO es unico: cada empresa numera sus viajes
+                // desde 1, asi que dos viajes de empresas distintas comparten el mismo
+                // numero. Sin el NIT, la API puede devolver el viaje de la otra empresa
+                // y se pintarian sus checkpoints sobre este viaje.
+                const headers = {};
+                if (trip.companyNIT) headers['X-Tenant-NIT'] = String(trip.companyNIT);
+                const resp = await fetch(`${API_BASE_URL}/trips/by-freight/${encodeURIComponent(freightId)}`,
+                                         { headers });
                 if (!resp.ok) { console.warn('[DASHBOARD] by-freight no OK:', resp.status); return; }
                 const data = await resp.json();
                 const det = data && data.trip;
                 if (!det) return;
+
+                // Segunda barrera: aunque el NIT coincida, se confirma que el detalle
+                // corresponde a ESTE viaje antes de copiar nada.
+                const mismoViaje =
+                    (!det.manifest || !trip.manifest || String(det.manifest) === String(trip.manifest)) &&
+                    (!det.plate || !trip.plate || String(det.plate).toUpperCase() === String(trip.plate).toUpperCase());
+                if (!mismoViaje) {
+                    console.warn('[DASHBOARD] by-freight devolvio otro viaje; detalle descartado.',
+                        { pedido: { freightId, placa: trip.plate, manifiesto: trip.manifest, nit: trip.companyNIT },
+                          recibido: { placa: det.plate, manifiesto: det.manifest } });
+                    return;
+                }
+
                 ['checkpoints','remittances','eventParameterizations','origin','destination',
                  'routeGeometry','routeGeometryFormat','mapRouteLineWeight','events','speedHistory',
                  'timeDistribution','gpsDevices'].forEach(k => {
