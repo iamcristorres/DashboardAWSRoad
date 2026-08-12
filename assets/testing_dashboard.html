@@ -7224,7 +7224,10 @@
 
             // Cargar eventos del vehículo
             try {
-                const response = await fetch(`${API_BASE_URL}/tracking/events?vehicle_id=${plate}&manifest=${manifest}&event_types=alerts&order=desc&limit=100`);
+                // limit=2000: con 100 solo se veian las alertas de las ultimas horas del
+                // viaje. La API pagina desde el 2026-08-12, asi que ya devuelve el viaje
+                // completo en lugar de la primera pagina de 1 MB.
+                const response = await fetch(`${API_BASE_URL}/tracking/events?vehicle_id=${plate}&manifest=${manifest}&event_types=alerts&order=desc&limit=2000`);
                 const result = await response.json();
 
                 const logsContent = document.getElementById('logsContent');
@@ -14425,12 +14428,23 @@
                     url += `&vehicle_id=${encodeURIComponent(plateFilter)}`;
                 }
 
-                // Agregar filtro de fechas si existe
+                // Filtro de fechas. Se envia siempre: con rango la API resuelve la consulta
+                // por el indice GSI1 (DATE#YYYY-MM-DD) y sin rango cae a un scan de la tabla
+                // completa, que sobre millones de items devuelve resultados arbitrarios.
+                // Si el usuario no eligio rango se asumen los ultimos 2 dias.
+                // La hora es necesaria: con solo YYYY-MM-DD el ultimo dia quedaba excluido,
+                // porque la fecha sin hora se interpreta como medianoche.
+                let alertStart, alertEnd;
                 if (alertDateRangePicker && alertDateRangePicker.selectedDates.length === 2) {
-                    const startDate = alertDateRangePicker.selectedDates[0].toISOString().split('T')[0];
-                    const endDate = alertDateRangePicker.selectedDates[1].toISOString().split('T')[0];
-                    url += `&start_date=${startDate}&end_date=${endDate}`;
+                    alertStart = alertDateRangePicker.selectedDates[0].toISOString().split('T')[0];
+                    alertEnd   = alertDateRangePicker.selectedDates[1].toISOString().split('T')[0];
+                } else {
+                    const hoy = new Date();
+                    const desde = new Date(hoy.getTime() - 2 * 24 * 60 * 60 * 1000);
+                    alertStart = desde.toISOString().split('T')[0];
+                    alertEnd   = hoy.toISOString().split('T')[0];
                 }
+                url += `&start_date=${alertStart}T00:00:00Z&end_date=${alertEnd}T23:59:59Z`;
 
                 console.log('Cargando alertas desde:', url);
 
@@ -16369,7 +16383,10 @@
                     document.getElementById('statAlerts').textContent = '0';
                     return;
                 }
-                const url = `${API_BASE_URL}/tracking/${numericId}/speed-alerts?limit=500`;
+                // 2000: un viaje largo pasa de 1200 alertas y con el tope anterior de 500
+                // las mas antiguas quedaban fuera del panel (por ejemplo los desvios de
+                // ruta del manifiesto 299007). El endpoint pagina desde el 2026-08-12.
+                const url = `${API_BASE_URL}/tracking/${numericId}/speed-alerts?limit=2000`;
                 const res = await fetch(url);
                 if (!res.ok) {
                     document.getElementById('statAlerts').textContent = '0';
@@ -17393,7 +17410,9 @@
 
             tbody.innerHTML = '<tr><td colspan="6" style="padding:20px;text-align:center;color:#06b6d4;">Cargando...</td></tr>';
 
-            const url = `${API_BASE_URL}/tracking/events?vehicle_id=${encodeURIComponent(searchCurrentPlate)}&manifest=${encodeURIComponent(searchCurrentManifest)}&event_types=alerts&order=desc&limit=100`;
+            // limit=2000 por el mismo motivo que en el panel del mapa: con 100 solo se
+            // veian las alertas del final del viaje.
+            const url = `${API_BASE_URL}/tracking/events?vehicle_id=${encodeURIComponent(searchCurrentPlate)}&manifest=${encodeURIComponent(searchCurrentManifest)}&event_types=alerts&order=desc&limit=2000`;
 
             try {
                 const res = await fetch(url);
