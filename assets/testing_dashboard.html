@@ -8668,6 +8668,72 @@
             applyAlertTypeVisibility();
         }
 
+        // Resuelve la geocerca de un punto de control por sus DATOS, no por la etiqueta.
+        // Mismo criterio que _resolver_geofence de las lambdas y de la FastAPI, para que el
+        // mapa muestre exactamente el area que evaluan las lambdas:
+        //   1. Poligono con 3 o mas vertices    -> POLYGON
+        //   2. Centro + radio                   -> RADIUS (radius, proximityDistance o 150)
+        //   3. Sin centro utilizable            -> null (no se puede dibujar)
+        // Acepta polygonCoordinates [{latitude,longitude}] y polygon como texto JSON o lista,
+        // con claves lat/lng o latitude/longitude, o pares [lat, lon].
+        const GEOFENCE_RADIO_RESPALDO_M = 150;
+
+        function _verticesPoligono(cp) {
+            let bruto = cp.polygonCoordinates || cp.polygon;
+            if (!bruto) return [];
+            if (typeof bruto === 'string') {
+                if (!bruto.trim()) return [];
+                try { bruto = JSON.parse(bruto); } catch (e) { return []; }
+            }
+            if (bruto && !Array.isArray(bruto) && Array.isArray(bruto.coordinates)) bruto = bruto.coordinates;
+            if (!Array.isArray(bruto)) return [];
+
+            const vertices = [];
+            bruto.forEach(v => {
+                let lat = null, lng = null;
+                if (Array.isArray(v) && v.length >= 2) { lat = v[0]; lng = v[1]; }
+                else if (v && typeof v === 'object') {
+                    lat = (v.lat != null) ? v.lat : v.latitude;
+                    lng = (v.lng != null) ? v.lng : ((v.lon != null) ? v.lon : v.longitude);
+                }
+                lat = Number(lat); lng = Number(lng);
+                if (!isNaN(lat) && !isNaN(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+                    vertices.push([lat, lng]);
+                }
+            });
+            return vertices;
+        }
+
+        function resolverGeocerca(cp) {
+            if (!cp) return null;
+
+            const vertices = _verticesPoligono(cp);
+            if (vertices.length >= 3) {
+                const lat = vertices.reduce((s, v) => s + v[0], 0) / vertices.length;
+                const lng = vertices.reduce((s, v) => s + v[1], 0) / vertices.length;
+                return { tipo: 'POLYGON', vertices: vertices, lat: lat, lng: lng };
+            }
+
+            const lat = Number(cp.latitude), lng = Number(cp.longitude);
+            if (isNaN(lat) || isNaN(lng)) return null;
+
+            let radio = Number(cp.radius);
+            if (!(radio > 0)) radio = Number(cp.proximityDistance);
+            if (!(radio > 0)) radio = GEOFENCE_RADIO_RESPALDO_M;
+            return { tipo: 'RADIUS', radio: radio, lat: lat, lng: lng };
+        }
+
+        // Texto corto de la geocerca para popups y listados: "Radio 350 m" / "Poligono (4 vertices)"
+        function etiquetaGeocerca(cp) {
+            const g = resolverGeocerca(cp);
+            if (!g) return 'Sin geocerca';
+            if (g.tipo === 'POLYGON') {
+                return 'Poligono (' + g.vertices.length + ' vertice' + (g.vertices.length !== 1 ? 's' : '') + ')';
+            }
+            const esRespaldo = !(Number(cp.radius) > 0) && !(Number(cp.proximityDistance) > 0);
+            return 'Radio ' + Math.round(g.radio) + ' m' + (esRespaldo ? ' (por defecto)' : '');
+        }
+
         // Crear icono de checkpoint
         function createCheckpointIcon(type, number, statusColor) {
             const checkpointStyles = {
@@ -8897,7 +8963,7 @@
                             <div><strong>Tipo:</strong> ${cp.controlType}</div>
                             <div><strong>Orden:</strong> ${cp.order}</div>
                             <div><strong>Coordenadas:</strong> ${cp.latitude.toFixed(6)}, ${cp.longitude.toFixed(6)}</div>
-                            <div><strong>Radio:</strong> ${cp.radius}m</div>
+                            <div><strong>Geocerca:</strong> ${etiquetaGeocerca(cp)}</div>
                             <div style="display: flex; align-items: center; gap: 4px;"><strong>Requerido:</strong> ${cp.required ? '<i data-lucide="check-circle" style="width: 14px; height: 14px; color: #10b981;"></i> Sí' : '<i data-lucide="x-circle" style="width: 14px; height: 14px; color: #ef4444;"></i> No'}</div>
                             <div style="display: flex; align-items: center; gap: 4px;"><strong>Notificar:</strong> ${cp.notify ? '<i data-lucide="check-circle" style="width: 14px; height: 14px; color: #10b981;"></i> Sí' : '<i data-lucide="x-circle" style="width: 14px; height: 14px; color: #ef4444;"></i> No'}</div>
                             ${cp.expectedCost ? `<div><strong>Costo esperado:</strong> $${cp.expectedCost.toLocaleString()}</div>` : ''}
@@ -8907,31 +8973,38 @@
 
                 mapLayers.checkpoints.push(marker);
 
-                // Agregar círculo de radio del checkpoint (solo si está habilitado)
-                const radius = cp.radius || 200; // Radio por defecto 200m
+                // Dibujar la geocerca REAL del punto: poligono si el punto lo trae, circulo
+                // si es por radio. Antes se dibujaba siempre un circulo, asi que un punto
+                // poligonal se mostraba como un area falsa que no correspondia a la que
+                // evaluan las lambdas.
+                const geof = resolverGeocerca(cp);
+                if (geof) {
+                    const estiloGeocerca = {
+                        color: '#06b6d4',
+                        fillColor: '#06b6d4',
+                        fillOpacity: 0.1,
+                        weight: 2,
+                        opacity: 0.5,
+                        dashArray: '5, 5'
+                    };
 
-                const circle = L.circle(latlng, {
-                    radius: radius,
-                    color: '#06b6d4',
-                    fillColor: '#06b6d4',
-                    fillOpacity: 0.1,
-                    weight: 2,
-                    opacity: 0.5,
-                    dashArray: '5, 5'
-                });
+                    const forma = (geof.tipo === 'POLYGON')
+                        ? L.polygon(geof.vertices, estiloGeocerca)
+                        : L.circle(latlng, Object.assign({ radius: geof.radio }, estiloGeocerca));
 
-                // Solo agregar al mapa si el checkbox está habilitado
-                if (document.getElementById('showCheckpointRadii').checked) {
-                    circle.addTo(map);
+                    // Solo agregar al mapa si el checkbox está habilitado
+                    if (document.getElementById('showCheckpointRadii').checked) {
+                        forma.addTo(map);
+                    }
+
+                    forma.bindTooltip(etiquetaGeocerca(cp), {
+                        direction: 'center',
+                        permanent: false,
+                        className: 'radius-tooltip'
+                    });
+
+                    mapLayers.checkpointRadii.push(forma);
                 }
-
-                circle.bindTooltip(`Radio: ${radius}m`, {
-                    direction: 'center',
-                    permanent: false,
-                    className: 'radius-tooltip'
-                });
-
-                mapLayers.checkpointRadii.push(circle);
             });
 
             return bounds;
@@ -16704,6 +16777,16 @@
                         name:              scp.name || scp.site || dyn.checkpointName || '-',
                         order:             scp.order != null ? scp.order : (dyn.checkpointOrder != null ? dyn.checkpointOrder : 99),
                         controlType:       scp.controlType || dyn.controlType || '',
+                        // Geometria de la geocerca: la define AVL360 por punto (radio o
+                        // poligono). Se propaga tal cual para poder mostrarla en la fila.
+                        latitude:          scp.latitude != null ? scp.latitude : dyn.latitude,
+                        longitude:         scp.longitude != null ? scp.longitude : dyn.longitude,
+                        geometryType:      scp.geometryType || dyn.geometryType || null,
+                        radius:            scp.radius != null ? scp.radius : dyn.radius,
+                        radiusSource:      scp.radiusSource || dyn.radiusSource || null,
+                        proximityDistance: scp.proximityDistance != null ? scp.proximityDistance : dyn.proximityDistance,
+                        polygon:           scp.polygon || dyn.polygon || null,
+                        polygonCoordinates:scp.polygonCoordinates || dyn.polygonCoordinates || null,
                         estimatedPassageAt:scp.estimatedPassageAt || dyn.estimatedPassageAt || null,
                         timeTolerance:     scp.timeTolerance != null ? scp.timeTolerance : (dyn.timeTolerance != null ? dyn.timeTolerance : null),
                         deadlineAt:        dyn.deadlineAt || scp.deadlineAt || null,
@@ -16871,6 +16954,36 @@
                             <span style="font-weight:700;color:${color || '#0f172a'};">${valor}</span>
                         </div>`;
 
+                    // Geocerca del punto: la figura que evaluan las lambdas para decidir si
+                    // el vehiculo entro, permanecio o paso. Se muestra el radio en metros o
+                    // el numero de vertices del poligono.
+                    const _geof = resolverGeocerca(cp);
+                    let geocercaBlock = '';
+                    if (_geof) {
+                        const esPoly   = _geof.tipo === 'POLYGON';
+                        const gColor   = esPoly ? '#7c3aed' : '#0891b2';
+                        const gIcono   = esPoly ? 'hexagon' : 'circle';
+                        const gTexto   = esPoly
+                            ? 'Poligono · ' + _geof.vertices.length + ' vertices'
+                            : 'Radio ' + Math.round(_geof.radio) + ' m';
+                        const porDefecto = !esPoly && !(Number(cp.radius) > 0) && !(Number(cp.proximityDistance) > 0);
+                        const gNota    = porDefecto
+                            ? '<span style="color:#94a3b8;font-size:10px;font-style:italic;"> · por defecto</span>'
+                            : (cp.radiusSource === 'clamped_max'
+                                ? '<span style="color:#f59e0b;font-size:10px;font-style:italic;" title="AVL360 envio un radio mayor al maximo permitido y se recorto a 5000 m."> · recortado</span>'
+                                : (cp.radiusSource === 'clamped_min'
+                                    ? '<span style="color:#f59e0b;font-size:10px;font-style:italic;" title="AVL360 envio un radio menor al minimo y se elevo a 10 m."> · elevado</span>'
+                                    : ''));
+                        geocercaBlock = `
+                        <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:5px;"
+                             title="Area que evaluan las lambdas para detectar entrada, permanencia y paso por el punto.">
+                            <span style="color:#94a3b8;font-size:10px;font-weight:700;text-transform:uppercase;">Geocerca:</span>
+                            <span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;padding:1px 7px;border-radius:8px;background:${gColor}14;color:${gColor};">
+                                <i data-lucide="${gIcono}" style="width:11px;height:11px;"></i>${gTexto}
+                            </span>${gNota}
+                        </div>`;
+                    }
+
                     // Pronostico de ETA (solo puntos pendientes con limite no vencido).
                     // Verbos en futuro para diferenciarlo del estado real (hecho).
                     const _fcColor = { on_time: '#16a34a', tight: '#f59e0b', at_risk: '#dc2626' };
@@ -16920,6 +17033,7 @@
                                 <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:${statusBg};color:${statusColor};">${statusLabel}</span>
                             </div>
                             ${behBlock}
+                            ${geocercaBlock}
                             <div style="font-size:12px;color:#475569;display:flex;flex-direction:column;gap:3px;">
                                 <div title="Hora que se planeo para el paso al crear la ruta. Fija.">
                                     <span style="color:#94a3b8;font-size:11px;font-weight:600;text-transform:uppercase;">Estimado: </span>
