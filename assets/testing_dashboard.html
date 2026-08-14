@@ -3555,6 +3555,10 @@
                         <span id="tipPlaca" style="font-size:22px; font-weight:800; color:#0f172a; letter-spacing:1px;"></span>
                         <span id="tipManifiesto" style="font-size:14px; color:#475569; background:rgba(6,182,212,0.1);
                               border:1px solid rgba(6,182,212,0.25); padding:3px 12px; border-radius:20px;"></span>
+                        <span id="tipFreightId" onclick="copiarIdentificadorViaje()"
+                              title="freightId del viaje en AVL360. Clic para copiarlo."
+                              style="font-size:14px; color:#7c3aed; background:rgba(124,58,237,0.08);
+                              border:1px solid rgba(124,58,237,0.25); padding:3px 12px; border-radius:20px; cursor:pointer;"></span>
                         <span id="tipStatus" style="font-size:12px; font-weight:700; padding:4px 12px; border-radius:20px;"></span>
                         <span id="tipOpType" style="font-size:12px; color:#64748b;"></span>
                     </div>
@@ -6407,12 +6411,70 @@
                     </span>`;
         }
 
+        // La API devuelve los identificadores numericos como float (freightId 252.0),
+        // asi que se recortan los decimales para mostrarlos y copiarlos como enteros.
+        function _idLimpio(valor) {
+            const n = Number(valor);
+            return (!isNaN(n) && Number.isInteger(n)) ? String(n) : String(valor);
+        }
+
+        // Copia freightId y vehicleNumericId al portapapeles. navigator.clipboard puede no
+        // estar disponible segun el contexto en que corra Electron, por eso hay respaldo.
+        function copiarIdentificadorViaje() {
+            const trip = _tipCurrentTrip || {};
+            const fid  = trip.freightId != null ? trip.freightId : trip.tripId;
+            if (fid == null) return;
+
+            const texto = _idLimpio(fid);
+            const avisar = () => {
+                const el = document.getElementById('tipFreightId');
+                if (!el) return;
+                const antes = el.textContent;
+                el.textContent = 'Copiado: ' + texto;
+                setTimeout(() => { el.textContent = antes; }, 1200);
+            };
+
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(texto).then(avisar).catch(() => copiarConRespaldo(texto, avisar));
+            } else {
+                copiarConRespaldo(texto, avisar);
+            }
+        }
+
+        function copiarConRespaldo(texto, alTerminar) {
+            const tmp = document.createElement('textarea');
+            tmp.value = texto;
+            tmp.style.position = 'fixed';
+            tmp.style.opacity = '0';
+            document.body.appendChild(tmp);
+            tmp.select();
+            try { document.execCommand('copy'); alTerminar(); } catch (e) { /* sin portapapeles */ }
+            document.body.removeChild(tmp);
+        }
+
         function populateTripInfoPanel(trip) {
             _tipCurrentTrip = trip;
 
             // Cabecera
             document.getElementById('tipPlaca').textContent = trip.plate || '-';
             document.getElementById('tipManifiesto').textContent = 'Manifiesto: ' + (trip.manifest || '-');
+
+            // freightId: es el identificador del viaje en AVL360 y el que se usa para
+            // consultar la API (by-freight). Se muestra junto al manifiesto y al hacer
+            // clic se copia, porque es el dato que se pega al probar los endpoints.
+            const freightEl = document.getElementById('tipFreightId');
+            if (freightEl) {
+                const fid = (trip.freightId != null ? trip.freightId : trip.tripId);
+                if (fid != null && fid !== '') {
+                    freightEl.textContent = 'Freight: ' + _idLimpio(fid);
+                    freightEl.style.display = '';
+                    freightEl.title = 'freightId del viaje en AVL360: ' + _idLimpio(fid) +
+                        (trip.vehicleNumericId ? '\nvehicleNumericId: ' + _idLimpio(trip.vehicleNumericId) : '') +
+                        '\nClic para copiar.';
+                } else {
+                    freightEl.style.display = 'none';
+                }
+            }
             const statusColors = { ENTRANSITO:'#06b6d4', DETENIDO:'#ef4444', SIN_GPS:'#94a3b8' };
             const statusLabels = { ENTRANSITO:'En transito', DETENIDO:'Detenido', SIN_GPS:'Sin GPS' };
             const sc = statusColors[trip.tripStatus] || '#64748b';
