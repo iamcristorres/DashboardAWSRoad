@@ -6794,8 +6794,13 @@
                 // y se pintarian sus checkpoints sobre este viaje.
                 const headers = {};
                 if (trip.companyNIT) headers['X-Tenant-NIT'] = String(trip.companyNIT);
-                const resp = await fetch(`${API_BASE_URL}/trips/by-freight/${encodeURIComponent(freightId)}`,
-                                         { headers });
+                // events_limit explicito: desde 2026-08-14 by-freight sin ese parametro
+                // devuelve TODOS los eventos del viaje (hay viajes de 9737, unos 6,8 MB).
+                // El panel de alertas no se alimenta de aqui sino de speed-alerts, asi que
+                // al abrir el viaje basta una muestra corta para el estado y el resumen.
+                const resp = await fetch(
+                    `${API_BASE_URL}/trips/by-freight/${encodeURIComponent(freightId)}?events_limit=100`,
+                    { headers });
                 if (!resp.ok) { console.warn('[DASHBOARD] by-freight no OK:', resp.status); return; }
                 const data = await resp.json();
                 const det = data && data.trip;
