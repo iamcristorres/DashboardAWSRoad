@@ -4253,6 +4253,18 @@
                         style="font-size:12px; padding:5px 14px; border-radius:8px;
                                border:1px solid rgba(6,182,212,0.3); background:rgba(6,182,212,0.08);
                                color:#0891b2; cursor:pointer; font-weight:600;"></button>
+
+                <!-- Recarga manual del viaje: posiciones, eventos y puntos de control -->
+                <button id="mapReloadBtn" onclick="recargarViajeMapa()"
+                        title="Vuelve a consultar la API: posiciones, eventos y puntos de control de este viaje"
+                        style="display:inline-flex; align-items:center; gap:6px; font-size:12px; padding:5px 14px;
+                               border-radius:8px; border:1px solid rgba(124,58,237,0.3);
+                               background:rgba(124,58,237,0.08); color:#7c3aed; cursor:pointer; font-weight:600;">
+                    <i id="mapReloadIcon" data-lucide="refresh-cw" style="width:13px; height:13px;"></i>
+                    <span id="mapReloadText">Actualizar</span>
+                </button>
+                <span id="mapReloadInfo" style="font-size:11px; color:#64748b; font-weight:600;"></span>
+
                 <span style="font-size:11px; color:#94a3b8;">GPS Satrack se actualiza cada ~1 min</span>
             </div>
 
@@ -6686,6 +6698,91 @@
         // via by-freight/{freightId}. La lista (active-dashboard) llega liviana sin estos
         // campos; se piden solo al abrir el viaje. Fusiona en el objeto trip y cachea con
         // _detailLoaded para no re-consultar. Resiliente: ante fallo conserva lo que haya.
+        // Recarga manual del viaje abierto en el mapa: vuelve a consultar la API por
+        // posiciones, eventos y puntos de control, y avisa cuantos eventos nuevos llegaron.
+        // El refresco automatico (toggleMapLiveRefresh) solo actualiza el mapa; este boton
+        // rehace la misma carga que al abrir el viaje, que es la que trae todo.
+        let _recargaEnCurso = false;
+
+        async function recargarViajeMapa() {
+            if (_recargaEnCurso) return;
+            if (!currentMapTripNumericId) {
+                const info = document.getElementById('mapReloadInfo');
+                if (info) { info.textContent = 'Abre un viaje primero'; info.style.color = '#f59e0b'; }
+                return;
+            }
+
+            _recargaEnCurso = true;
+            const btn   = document.getElementById('mapReloadBtn');
+            const icono = document.getElementById('mapReloadIcon');
+            const texto = document.getElementById('mapReloadText');
+            const info  = document.getElementById('mapReloadInfo');
+
+            // Las posiciones se cuentan sobre la tabla ya renderizada: la lista que arma
+            // loadMapPositions es local a esa funcion y no queda accesible desde aqui.
+            const contarPosiciones = () => {
+                const cuerpo = document.getElementById('mapPosTableBody');
+                return cuerpo ? cuerpo.querySelectorAll('tr').length : 0;
+            };
+            const eventosAntes = Array.isArray(allMapAlertsData) ? allMapAlertsData.length : 0;
+            const posicionesAntes = contarPosiciones();
+
+            if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; btn.style.cursor = 'wait'; }
+            if (icono) icono.style.animation = 'spin 1s linear infinite';
+            if (texto) texto.textContent = 'Actualizando...';
+            if (info)  { info.textContent = ''; info.style.color = '#64748b'; }
+
+            try {
+                // 1. Detalle del viaje (by-freight): estado, ETA, checkpoints y geometria.
+                //    Se invalida la cache para que no devuelva lo mismo que ya estaba.
+                const trip = _tipCurrentTrip;
+                if (trip) {
+                    trip._detailLoaded = false;
+                    await ensureTripDetailLoaded(trip);
+                    currentMapTripCheckpoints   = trip.checkpoints || currentMapTripCheckpoints;
+                    currentMapTripRouteGeometry = trip.routeGeometry || currentMapTripRouteGeometry;
+                    currentMapTripEventParams   = trip.eventParameterizations || currentMapTripEventParams;
+                    populateTripInfoPanel(trip);
+                }
+
+                // 2. Posiciones + mapa. Al terminar encadena las alertas del panel.
+                await loadMapPositions();
+
+                // 3. Estado de los puntos de control
+                await cargarCheckpointsViaje();
+
+                const eventosDespues = Array.isArray(allMapAlertsData) ? allMapAlertsData.length : 0;
+                const nuevos = eventosDespues - eventosAntes;
+                const posNuevas = contarPosiciones() - posicionesAntes;
+                const hora = new Date().toLocaleTimeString('es-CO');
+
+                if (info) {
+                    if (nuevos > 0) {
+                        info.textContent = nuevos + ' evento' + (nuevos === 1 ? '' : 's') + ' nuevo' +
+                                           (nuevos === 1 ? '' : 's') +
+                                           (posNuevas > 0 ? ' · ' + posNuevas + ' posicion' + (posNuevas === 1 ? '' : 'es') : '') +
+                                           ' · ' + hora;
+                        info.style.color = '#16a34a';
+                    } else if (posNuevas > 0) {
+                        info.textContent = posNuevas + ' posicion' + (posNuevas === 1 ? '' : 'es') +
+                                           ' nueva' + (posNuevas === 1 ? '' : 's') + ' · ' + hora;
+                        info.style.color = '#16a34a';
+                    } else {
+                        info.textContent = 'Sin novedades · ' + hora;
+                        info.style.color = '#64748b';
+                    }
+                }
+            } catch (err) {
+                console.error('[DASHBOARD] Error al recargar el viaje:', err);
+                if (info) { info.textContent = 'Error al actualizar'; info.style.color = '#dc2626'; }
+            } finally {
+                _recargaEnCurso = false;
+                if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.style.cursor = 'pointer'; }
+                if (icono) icono.style.animation = '';
+                if (texto) texto.textContent = 'Actualizar';
+            }
+        }
+
         async function ensureTripDetailLoaded(trip) {
             if (!trip || trip._detailLoaded) return;
             const freightId = trip.freightId || trip.tripId;
