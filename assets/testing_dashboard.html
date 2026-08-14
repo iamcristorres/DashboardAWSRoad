@@ -4039,46 +4039,68 @@
                             Ver Todas las Alertas
                         </button>
 
-                        <!-- Filtros compactos -->
+                        <!-- Filtros del panel de alertas -->
                         <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; padding: 12px; background: rgba(6, 182, 212, 0.05); border-radius: 12px;">
-                            <!-- Búsqueda -->
+
+                            <!-- Tipo de evento: las opciones se arman con los tipos que trae
+                                 el viaje cargado, para que nunca haya opciones que no existen -->
+                            <div>
+                                <label style="font-size: 10px; font-weight: 700; color: rgba(15,23,42,0.55); text-transform: uppercase; letter-spacing: 0.3px;">Tipo de evento</label>
+                                <select id="mapAlertTypeFilter" multiple style="font-size: 12px; padding: 6px; margin-top: 4px;"></select>
+                            </div>
+
+                            <!-- Tipo de alerta (tier configurado en AVL360) -->
+                            <div>
+                                <label style="font-size: 10px; font-weight: 700; color: rgba(15,23,42,0.55); text-transform: uppercase; letter-spacing: 0.3px;">Tipo de alerta</label>
+                                <select id="mapAlertTierFilter" multiple style="font-size: 12px; padding: 6px; margin-top: 4px;">
+                                    <option value="preventive">Preventiva</option>
+                                    <option value="moderate">Moderada</option>
+                                    <option value="critical">Crítica</option>
+                                </select>
+                            </div>
+
+                            <!-- Rango de fechas con hora -->
+                            <div>
+                                <label style="font-size: 10px; font-weight: 700; color: rgba(15,23,42,0.55); text-transform: uppercase; letter-spacing: 0.3px;">Rango de fechas</label>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px;">
+                                    <input type="datetime-local" id="mapAlertDateFrom" title="Desde (hora Colombia)"
+                                           style="width: 100%; padding: 6px; border: 1px solid rgba(6, 182, 212, 0.2); border-radius: 8px; font-size: 12px;"
+                                           onchange="filterMapAlerts()">
+                                    <input type="datetime-local" id="mapAlertDateTo" title="Hasta (hora Colombia)"
+                                           style="width: 100%; padding: 6px; border: 1px solid rgba(6, 182, 212, 0.2); border-radius: 8px; font-size: 12px;"
+                                           onchange="filterMapAlerts()">
+                                </div>
+                            </div>
+
+                            <!-- Notificacion al webhook de AVL360 -->
+                            <div>
+                                <label style="font-size: 10px; font-weight: 700; color: rgba(15,23,42,0.55); text-transform: uppercase; letter-spacing: 0.3px;">Notificacion a AVL360</label>
+                                <div style="display: flex; gap: 14px; margin-top: 6px; flex-wrap: wrap;">
+                                    <label style="display: flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer;" title="Alertas que si se enviaron al webhook de AVL360">
+                                        <input type="checkbox" id="mapAlertNotifiedYes" onchange="filterMapAlerts()" style="cursor: pointer;">
+                                        Notificadas
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer;" title="Alertas registradas que NO se enviaron al webhook (cooldown del tier o notify_bell apagado)">
+                                        <input type="checkbox" id="mapAlertNotifiedNo" onchange="filterMapAlerts()" style="cursor: pointer;">
+                                        No notificadas
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- Busqueda -->
                             <div style="position: relative;">
                                 <i data-lucide="search" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; color: rgba(15, 23, 42, 0.4);"></i>
                                 <input type="text" id="mapAlertSearch" placeholder="Buscar en alertas..." style="width: 100%; padding: 8px 8px 8px 32px; border: 1px solid rgba(6, 182, 212, 0.2); border-radius: 8px; font-size: 13px;" oninput="filterMapAlerts()">
                             </div>
 
-                            <!-- Severidad y Estado -->
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                                <select id="mapAlertSeverityFilter" multiple style="font-size: 12px; padding: 6px;">
-                                    <option value="CRITICAL">Crítica</option>
-                                    <option value="HIGH">Alta</option>
-                                    <option value="MEDIUM">Media</option>
-                                    <option value="LOW">Baja</option>
-                                    <option value="INFO">Info</option>
-                                </select>
-
-                                <select id="mapAlertStatusFilter" style="font-size: 12px; padding: 6px;" onchange="filterMapAlerts()">
-                                    <option value="">Todos</option>
-                                    <option value="pending">Pendientes</option>
-                                    <option value="resolved">Resueltas</option>
-                                </select>
+                            <!-- Resultado y limpieza -->
+                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                                <span id="mapAlertFilterCount" style="font-size: 11px; color: rgba(15,23,42,0.6); font-weight: 600;"></span>
+                                <button type="button" onclick="limpiarFiltrosMapAlerts()"
+                                        style="font-size: 11px; font-weight: 600; padding: 4px 10px; border: 1px solid rgba(6,182,212,0.3); border-radius: 8px; background: #fff; color: #0891b2; cursor: pointer;">
+                                    Limpiar filtros
+                                </button>
                             </div>
-
-                            <!-- Tipo de alerta -->
-                            <select id="mapAlertTypeFilter" multiple style="font-size: 12px; padding: 6px;">
-                                <option value="SPEED_VIOLATION">Exceso de velocidad</option>
-                                <option value="GEOFENCE_VIOLATION">Violación de geocerca</option>
-                                <option value="MAINTENANCE_ALERT">Mantenimiento</option>
-                                <option value="DEVIATION">Desviación de ruta</option>
-                                <option value="GPS_CONNECTION_FAILED">Fallo GPS</option>
-                                <option value="FUEL_ALERT">Combustible</option>
-                                <option value="CHECKPOINT_ALERT">Puesto de control</option>
-                                <option value="LOADING_TIME_ALERT">Tiempo de carga</option>
-                                <option value="DRIVER_ALERT">Conductor</option>
-                                <option value="VEHICLE_STATUS_ALERT">Estado vehículo</option>
-                                <option value="ROUTE_ALERT">Ruta</option>
-                                <option value="OTHER">Otros</option>
-                            </select>
                         </div>
 
                         <!-- Lista de alertas con scroll -->
@@ -9866,23 +9888,23 @@
         let filteredMapAlertsData = [];
         let currentMapAlertPage = 1;
         let mapAlertsPerPage = 10;
-        let mapAlertSeverityChoices = null;
+        let mapAlertTierChoices = null;
         let mapAlertTypeChoices = null;
         let currentMapAlertDetail = null;
 
         // Inicializar controles del panel de alertas del mapa
         function initMapAlertControls() {
-            const severitySelect = document.getElementById('mapAlertSeverityFilter');
-            if (severitySelect && !mapAlertSeverityChoices) {
-                mapAlertSeverityChoices = new Choices(severitySelect, {
+            const tierSelect = document.getElementById('mapAlertTierFilter');
+            if (tierSelect && !mapAlertTierChoices) {
+                mapAlertTierChoices = new Choices(tierSelect, {
                     removeItemButton: true,
                     searchEnabled: false,
                     placeholder: true,
-                    placeholderValue: 'Severidad...',
+                    placeholderValue: 'Preventiva, moderada, critica...',
                     noResultsText: 'Sin resultados',
                     itemSelectText: ''
                 });
-                severitySelect.addEventListener('change', filterMapAlerts);
+                tierSelect.addEventListener('change', filterMapAlerts);
             }
 
             const typeSelect = document.getElementById('mapAlertTypeFilter');
@@ -9891,12 +9913,60 @@
                     removeItemButton: true,
                     searchEnabled: true,
                     placeholder: true,
-                    placeholderValue: 'Tipo de alerta...',
+                    placeholderValue: 'Todos los tipos...',
                     noResultsText: 'Sin resultados',
                     itemSelectText: ''
                 });
                 typeSelect.addEventListener('change', filterMapAlerts);
             }
+        }
+
+        // Las opciones de "Tipo de evento" se arman con los EventType que trae el viaje
+        // cargado. Antes estaban fijas con valores que no existen en los datos
+        // (SPEED_VIOLATION, GEOFENCE_VIOLATION...), asi que el filtro dejaba la lista en
+        // cero: los tipos reales son Speeding, RouteDeviation, Stop y CHECKPOINT_*.
+        function poblarTiposDeEvento(alerts) {
+            if (!mapAlertTypeChoices) return;
+            const seleccion = mapAlertTypeChoices.getValue(true) || [];
+            const tipos = [...new Set((alerts || [])
+                .map(a => a.EventType || a.AlertType)
+                .filter(Boolean))].sort();
+
+            mapAlertTypeChoices.clearStore();
+            mapAlertTypeChoices.setChoices(
+                tipos.map(t => ({
+                    value: t,
+                    label: formatAlertType(t) + '  (' +
+                           (alerts.filter(a => (a.EventType || a.AlertType) === t).length) + ')',
+                    selected: seleccion.includes(t),
+                })),
+                'value', 'label', true
+            );
+        }
+
+        function limpiarFiltrosMapAlerts() {
+            const buscar = document.getElementById('mapAlertSearch');
+            if (buscar) buscar.value = '';
+            ['mapAlertDateFrom', 'mapAlertDateTo'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.value = '';
+            });
+            ['mapAlertNotifiedYes', 'mapAlertNotifiedNo'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.checked = false;
+            });
+            if (mapAlertTierChoices) mapAlertTierChoices.removeActiveItems();
+            if (mapAlertTypeChoices) mapAlertTypeChoices.removeActiveItems();
+            filterMapAlerts();
+        }
+
+        // Las alertas guardan CreatedAt en hora Colombia con sufijo Z (asi lo escriben las
+        // lambdas). Interpretarlo como UTC correria el filtro 5 horas, por eso se recorta
+        // el sufijo y se compara como texto ISO local contra los inputs datetime-local.
+        function _alertaFechaLocal(alert) {
+            const crudo = alert.CreatedAt || alert.Timestamp || alert.reported_at || '';
+            if (!crudo) return '';
+            return String(crudo).replace('T', ' ').replace(/(\.\d+)?Z?$/, '').trim();
         }
 
         // Actualizar panel de alertas con datos del mapa
@@ -9915,18 +9985,22 @@
             // Inicializar controles si no están inicializados
             initMapAlertControls();
 
-            // Actualizar estadísticas
-            updateMapAlertStatistics(alerts);
+            // Opciones de "Tipo de evento" segun lo que realmente trae este viaje
+            poblarTiposDeEvento(alerts);
 
-            // Filtrar y renderizar
+            // Filtrar y renderizar (filterMapAlerts actualiza las estadisticas)
             filterMapAlerts();
         }
 
         // Actualizar estadísticas de alertas
         function updateMapAlertStatistics(alerts) {
-            const critical = alerts.filter(a => a.Severity === 'CRITICAL').length;
-            const high = alerts.filter(a => a.Severity === 'HIGH').length;
-            const medium = alerts.filter(a => (a.Severity === 'MEDIUM' || a.Severity === 'LOW')).length;
+            // Se cuenta por TierId, que es el dato que traen los EVENT# de las lambdas.
+            // Severity es un campo derivado que agrega el dashboard, asi que se usa solo
+            // como respaldo para alertas de otras fuentes que no traigan tier.
+            const tier = (a) => String(a.TierId || '').toLowerCase();
+            const critical = alerts.filter(a => tier(a) === 'critical' || (!a.TierId && a.Severity === 'CRITICAL')).length;
+            const high = alerts.filter(a => tier(a) === 'moderate' || (!a.TierId && a.Severity === 'HIGH')).length;
+            const medium = alerts.filter(a => tier(a) === 'preventive' || (!a.TierId && (a.Severity === 'MEDIUM' || a.Severity === 'LOW'))).length;
             const resolved = alerts.filter(a => a.Resolved === true).length;
 
             document.getElementById('mapAlertStatCritical').textContent = critical;
@@ -9945,39 +10019,66 @@
 
             let filtered = [...allMapAlertsData];
 
-            // Filtro por búsqueda de texto
-            const searchText = document.getElementById('mapAlertSearch').value.toLowerCase().trim();
-            if (searchText) {
-                filtered = filtered.filter(alert => {
-                    const type = (alert.EventType || alert.AlertType || '').toLowerCase();
-                    const desc = (alert.Description || '').toLowerCase();
-                    const location = (alert.Data?.locationName || '').toLowerCase();
-                    return type.includes(searchText) || desc.includes(searchText) || location.includes(searchText);
-                });
-            }
-
-            // Filtro por severidad
-            const severityValues = mapAlertSeverityChoices ? mapAlertSeverityChoices.getValue(true) : [];
-            if (severityValues.length > 0) {
-                filtered = filtered.filter(alert => severityValues.includes(alert.Severity));
-            }
-
-            // Filtro por estado
-            const statusFilter = document.getElementById('mapAlertStatusFilter').value;
-            if (statusFilter === 'pending') {
-                filtered = filtered.filter(alert => !alert.Resolved);
-            } else if (statusFilter === 'resolved') {
-                filtered = filtered.filter(alert => alert.Resolved);
-            }
-
-            // Filtro por tipo de alerta
+            // Tipo de evento (Speeding, RouteDeviation, Stop, CHECKPOINT_*...)
             const typeValues = mapAlertTypeChoices ? mapAlertTypeChoices.getValue(true) : [];
             if (typeValues.length > 0) {
                 filtered = filtered.filter(alert => typeValues.includes(alert.EventType || alert.AlertType));
             }
 
+            // Tipo de alerta: el tier configurado en AVL360 (preventive/moderate/critical)
+            const tierValues = mapAlertTierChoices ? mapAlertTierChoices.getValue(true) : [];
+            if (tierValues.length > 0) {
+                filtered = filtered.filter(alert => tierValues.includes(String(alert.TierId || '').toLowerCase()));
+            }
+
+            // Rango de fechas con hora. Los inputs datetime-local dan "YYYY-MM-DDTHH:MM";
+            // se comparan como texto contra la fecha de la alerta ya normalizada, que
+            // tambien esta en hora Colombia: asi no hay conversiones de zona de por medio.
+            const desde = (document.getElementById('mapAlertDateFrom')?.value || '').replace('T', ' ');
+            const hasta = (document.getElementById('mapAlertDateTo')?.value || '').replace('T', ' ');
+            if (desde) filtered = filtered.filter(a => _alertaFechaLocal(a) >= desde);
+            if (hasta) filtered = filtered.filter(a => _alertaFechaLocal(a) <= hasta + ':59');
+
+            // Notificacion al webhook de AVL360. Ninguno o los dos marcados = sin filtrar.
+            const quiereNotificadas = document.getElementById('mapAlertNotifiedYes')?.checked;
+            const quiereNoNotificadas = document.getElementById('mapAlertNotifiedNo')?.checked;
+            if (quiereNotificadas !== quiereNoNotificadas) {
+                filtered = filtered.filter(a => (a.NotificationAVL360 === true) === quiereNotificadas);
+            }
+
+            // Busqueda libre: tipo (crudo y traducido), descripcion, ubicacion, tier y placa
+            const searchText = document.getElementById('mapAlertSearch').value.toLowerCase().trim();
+            if (searchText) {
+                filtered = filtered.filter(alert => {
+                    const tipo = (alert.EventType || alert.AlertType || '');
+                    const campos = [
+                        tipo,
+                        formatAlertType(tipo),
+                        alert.Description || '',
+                        alert.Data?.locationName || alert.LocationName || '',
+                        alert.TierId || '',
+                        alert.Plate || '',
+                        _alertaFechaLocal(alert),
+                    ].join(' ').toLowerCase();
+                    return campos.includes(searchText);
+                });
+            }
+
             filteredMapAlertsData = filtered;
             currentMapAlertPage = 1; // Reset a primera página
+
+            // Los contadores reflejan el RESULTADO del filtro, no el total del viaje:
+            // si no, filtrar dejaba los numeros de arriba contando otra cosa.
+            updateMapAlertStatistics(filtered);
+
+            const contador = document.getElementById('mapAlertFilterCount');
+            if (contador) {
+                const total = allMapAlertsData.length;
+                contador.textContent = (filtered.length === total)
+                    ? total + ' alerta' + (total === 1 ? '' : 's')
+                    : filtered.length + ' de ' + total;
+            }
+
             renderMapAlertsPage();
         }
 
