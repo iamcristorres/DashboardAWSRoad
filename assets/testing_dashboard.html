@@ -10022,13 +10022,25 @@
             filterMapAlerts();
         }
 
-        // Las alertas guardan CreatedAt en hora Colombia con sufijo Z (asi lo escriben las
-        // lambdas). Interpretarlo como UTC correria el filtro 5 horas, por eso se recorta
-        // el sufijo y se compara como texto ISO local contra los inputs datetime-local.
+        // Fecha de la alerta normalizada a hora LOCAL (Colombia) como "YYYY-MM-DD HH:MM:SS",
+        // que es el formato que se compara contra los inputs datetime-local del filtro.
+        //
+        // CreatedAt viene en UTC: las cuatro lambdas lo escriben con datetime.utcnow()+"Z".
+        // Ojo, no todos los campos de tiempo del mismo item siguen esa regla (PosReference y
+        // NotificationAVL360SentAt van en hora Colombia), por eso aqui se deja que Date
+        // interprete el sufijo y luego se lee en hora local, en vez de recortar el texto:
+        // recortarlo dejaba el filtro corrido 5 horas.
         function _alertaFechaLocal(alert) {
             const crudo = alert.CreatedAt || alert.Timestamp || alert.reported_at || '';
             if (!crudo) return '';
-            return String(crudo).replace('T', ' ').replace(/(\.\d+)?Z?$/, '').trim();
+            const d = new Date(crudo);
+            if (isNaN(d.getTime())) {
+                // Formato inesperado: se compara el texto crudo antes que descartar la alerta
+                return String(crudo).replace('T', ' ').replace(/(\.\d+)?Z?$/, '').trim();
+            }
+            const dosDigitos = (n) => String(n).padStart(2, '0');
+            return d.getFullYear() + '-' + dosDigitos(d.getMonth() + 1) + '-' + dosDigitos(d.getDate()) +
+                   ' ' + dosDigitos(d.getHours()) + ':' + dosDigitos(d.getMinutes()) + ':' + dosDigitos(d.getSeconds());
         }
 
         // Actualizar panel de alertas con datos del mapa
