@@ -4928,32 +4928,47 @@
         }
 
         /**
-         * Formatea una cita de cargue o descargue (remittances[].date_loaded /
-         * date_unloaded) en hora Colombia (UTC-5).
+         * Convierte a hora Colombia una fecha del viaje y la devuelve como Date.
          *
-         * AVL360 envia estas dos fechas en UTC, con sufijo Z. El resto de fechas del viaje
-         * (estimatedPassageAt, entryTime, exitTime) las normaliza la API a hora Colombia al
-         * escribir el viaje, por lo que llegan sin Z. Sin convertir, la cita se mostraria
-         * cinco horas adelantada frente al resto de la pantalla.
+         * AVL360 envia las citas de las remesas (date_loaded / date_unloaded) en UTC, con
+         * sufijo Z. El resto de fechas del viaje (estimatedPassageAt, entryTime, exitTime,
+         * passedAt) ya vienen en hora Colombia porque la API les aplica
+         * _utc_str_to_colombia_str() al escribir el viaje. La conversion se aplica solo
+         * cuando el valor trae la Z, para no restar las cinco horas dos veces si mas
+         * adelante la API normaliza tambien las citas.
          *
-         * La conversion se aplica solo cuando el valor trae la Z, para que el resultado siga
-         * siendo correcto si mas adelante la API normaliza tambien estos dos campos.
+         * El Date resultante lleva la hora de Colombia en sus campos locales, de modo que
+         * dos fechas del viaje puedan restarse entre si y compararse con la hora del equipo.
          */
-        function fmtCitaCol(iso) {
-            if (!iso) return null;
-            const s = String(iso).trim();
-            if (!/Z$/i.test(s)) return s.replace('T', ' ').substring(0, 16);
-            const ms = Date.parse(s);
-            if (isNaN(ms)) return s.replace('T', ' ').replace(/(\.\d+)?Z$/i, '').substring(0, 16);
-            const col = new Date(ms - 5 * 3600 * 1000);
-            const dos = (n) => String(n).padStart(2, '0');
-            return col.getUTCFullYear() + '-' + dos(col.getUTCMonth() + 1) + '-' + dos(col.getUTCDate()) +
-                   ' ' + dos(col.getUTCHours()) + ':' + dos(col.getUTCMinutes());
+        function parseHoraCol(valor) {
+            if (!valor) return null;
+            const s = String(valor).trim();
+            if (/Z$/i.test(s)) {
+                const ms = Date.parse(s);
+                if (isNaN(ms)) return null;
+                const u = new Date(ms - 5 * 3600 * 1000);
+                return new Date(u.getUTCFullYear(), u.getUTCMonth(), u.getUTCDate(),
+                                u.getUTCHours(), u.getUTCMinutes(), u.getUTCSeconds());
+            }
+            const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+            if (!m) return null;
+            return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
         }
 
-        /**
-         * Duracion pactada de cargue o descargue: '02:00:00' -> '2 h', '01:30:00' -> '1 h 30 min'.
-         */
+        /** Fecha y hora legible de un Date: '2026-08-06 12:02'. */
+        function fmtFechaHoraCol(d) {
+            if (!d || isNaN(d.getTime())) return null;
+            const dos = (n) => String(n).padStart(2, '0');
+            return d.getFullYear() + '-' + dos(d.getMonth() + 1) + '-' + dos(d.getDate()) +
+                   ' ' + dos(d.getHours()) + ':' + dos(d.getMinutes());
+        }
+
+        /** Cita de cargue o descargue en hora Colombia, lista para mostrar. */
+        function fmtCitaCol(iso) {
+            return fmtFechaHoraCol(parseHoraCol(iso));
+        }
+
+        /** Duracion pactada de cargue o descargue: '02:00:00' -> '2 h', '01:30:00' -> '1 h 30 min'. */
         function fmtDuracionPactada(dur) {
             if (!dur) return null;
             const partes = String(dur).split(':');
@@ -4962,6 +4977,130 @@
             const m = parseInt(partes[1], 10) || 0;
             if (!h && !m) return '0 min';
             return (h ? h + ' h' : '') + (h && m ? ' ' : '') + (m ? m + ' min' : '');
+        }
+
+        /** Duracion pactada en minutos: '02:00:00' -> 120. */
+        function duracionPactadaMin(dur) {
+            if (!dur) return null;
+            const p = String(dur).split(':');
+            if (p.length < 2) return null;
+            return (parseInt(p[0], 10) || 0) * 60 + (parseInt(p[1], 10) || 0);
+        }
+
+        /** Lapso en minutos a texto corto: 8 -> '8 min', 152 -> '2 h 32 min', 1620 -> '1 d 3 h'. */
+        function fmtLapso(min) {
+            const t = Math.round(Math.abs(min));
+            if (t < 60) return t + ' min';
+            if (t < 1440) {
+                const h = Math.floor(t / 60), m = t % 60;
+                return h + ' h' + (m ? ' ' + m + ' min' : '');
+            }
+            const d = Math.floor(t / 1440), h = Math.round((t % 1440) / 60);
+            return d + ' d' + (h ? ' ' + h + ' h' : '');
+        }
+
+        /**
+         * Compara la cita pactada de un punto contra lo que detectaron las lambdas de
+         * posicion en el checkpoint correspondiente.
+         *
+         * La llegada real es passedAt: la lambda de paso por punto lo alinea al momento de
+         * ENTRADA al geofence, no al de salida, que es lo que corresponde a la cita. Si el
+         * punto se resolvio por cruce interpolado no hay entrada ni salida, solo passedAt.
+         * Se juzga con la misma tolerancia del checkpoint (timeTolerance, en minutos) que
+         * usa la lambda para su propio cumplimiento.
+         *
+         * Ojo: entryTime y exitTime son la hora en que la lambda PROCESO la posicion, que
+         * puede ir unos minutos por detras de la hora del GPS.
+         *
+         * Devuelve null si no hay cita, o el estado listo para pintar.
+         */
+        function compararCitaConDeteccion(citaIso, cp) {
+            const cita = parseHoraCol(citaIso);
+            if (!cita) return null;
+
+            const VERDE = { color: '#047857', fondo: '#d1fae5' };
+            const AZUL  = { color: '#0e7490', fondo: '#cffafe' };
+            const AMBAR = { color: '#b45309', fondo: '#fef3c7' };
+            const ROJO  = { color: '#b91c1c', fondo: '#fee2e2' };
+            const GRIS  = { color: '#64748b', fondo: '#f1f5f9' };
+
+            const llegada = cp ? (parseHoraCol(cp.passedAt) || parseHoraCol(cp.entryTime)) : null;
+            const tolerancia = cp && cp.timeTolerance != null ? Number(cp.timeTolerance) || 0 : 0;
+            const estado = cp ? cp.status : null;
+
+            // Todavia sin llegada detectada: se informa la espera frente a la cita.
+            if (!llegada) {
+                if (estado === 'NO_REGISTRA') {
+                    return Object.assign({ texto: 'Sin registro de paso', detalle: null }, GRIS);
+                }
+                if (estado === 'MISSED') {
+                    return Object.assign({ texto: 'No paso por el punto', detalle: null }, ROJO);
+                }
+                const atraso = (Date.now() - cita.getTime()) / 60000;
+                if (atraso > tolerancia) {
+                    return Object.assign({ texto: 'Cita vencida', detalle: 'sin llegada hace ' + fmtLapso(atraso) }, AMBAR);
+                }
+                return Object.assign({ texto: 'Pendiente', detalle: null }, GRIS);
+            }
+
+            const desvio = (llegada.getTime() - cita.getTime()) / 60000;
+            let est;
+            if (desvio < 0)                est = Object.assign({ texto: 'Adelantado ' + fmtLapso(desvio) }, AZUL);
+            else if (desvio <= tolerancia) est = Object.assign({ texto: desvio < 1 ? 'A tiempo' : 'A tiempo (+' + fmtLapso(desvio) + ')' }, VERDE);
+            else                           est = Object.assign({ texto: 'Tarde ' + fmtLapso(desvio) }, ROJO);
+
+            est.detalle = 'detectado ' + fmtFechaHoraCol(llegada);
+            return est;
+        }
+
+        /**
+         * Permanencia real en el punto frente a la duracion pactada de cargue o descargue.
+         * Devuelve null si el punto no reporta permanencia, como los resueltos por cruce,
+         * que no tienen entrada ni salida.
+         */
+        function compararPermanencia(pactadaIso, cp) {
+            if (!cp) return null;
+            const pactadaMin = duracionPactadaMin(pactadaIso);
+            const dwell = cp.dwellMinutes != null ? Number(cp.dwellMinutes) : null;
+            const entrada = parseHoraCol(cp.entryTime);
+
+            // Sigue dentro del punto: la permanencia se cuenta contra el reloj.
+            if (dwell === null && entrada && !cp.exitTime && cp.status === 'INSIDE') {
+                const enCurso = (Date.now() - entrada.getTime()) / 60000;
+                if (enCurso < 0) return null;
+                // Diferencias por debajo del minuto se consideran dentro de lo pactado.
+                const excede = pactadaMin != null && (enCurso - pactadaMin) >= 1;
+                return {
+                    texto: 'En el punto hace ' + fmtLapso(enCurso),
+                    detalle: pactadaMin == null ? null
+                           : (excede ? 'excede lo pactado en ' + fmtLapso(enCurso - pactadaMin) : 'dentro de lo pactado'),
+                    color: excede ? '#b45309' : '#64748b'
+                };
+            }
+            if (dwell === null) return null;
+
+            const texto = 'Permanencia ' + (dwell < 1 ? 'menor a 1 min' : fmtLapso(dwell));
+            if (pactadaMin == null) return { texto: texto, detalle: null, color: '#64748b' };
+            const dif = dwell - pactadaMin;
+            return {
+                texto: texto,
+                detalle: dif >= 1 ? 'excede lo pactado en ' + fmtLapso(dif) : 'dentro de lo pactado',
+                color: dif >= 1 ? '#b45309' : '#047857'
+            };
+        }
+
+        /**
+         * Checkpoint que corresponde al remitente o destinatario de una remesa.
+         * El emparejamiento es por pointId; si el mismo punto aparece varias veces se
+         * prefiere el que tenga el controlType propio del rol.
+         */
+        function checkpointDeRemesa(checkpoints, punto, rol) {
+            if (!punto || punto.id == null || !Array.isArray(checkpoints)) return null;
+            const id = String(punto.id);
+            const candidatos = checkpoints.filter(c => String(c.pointId) === id || String(c.id) === id);
+            if (!candidatos.length) return null;
+            const esperado = rol === 'sender' ? 'ORIGIN' : 'DESTINATION';
+            return candidatos.find(c => c.controlType === esperado) || candidatos[0];
         }
 
         // ==================== GESTIÓN DE TABS ====================
@@ -6617,36 +6756,55 @@
             const remHtml = remesas.length === 0
                 ? '<p style="color:#94a3b8;font-size:13px;">Sin remesas registradas</p>'
                 : remesas.map((r, i) => {
-                    // Citas pactadas de cargue y descargue. Llegan en UTC desde AVL360, por eso
-                    // pasan por fmtCitaCol, que las lleva a hora Colombia.
-                    const citaCargue    = fmtCitaCol(r.date_loaded);
-                    const citaDescargue = fmtCitaCol(r.date_unloaded);
-                    const durCargue     = fmtDuracionPactada(r.agreed_load_duration);
-                    const durDescargue  = fmtDuracionPactada(r.agreed_unload_duration);
-                    const bloqueCita = (titulo, cita, dur) => `
+                    // Citas pactadas de cargue y descargue frente a lo que detectaron las
+                    // lambdas de posicion en el checkpoint de cada punto. Las citas llegan
+                    // en UTC desde AVL360; parseHoraCol las lleva a hora Colombia.
+                    const cps      = trip.checkpoints || [];
+                    const cpCargue = checkpointDeRemesa(cps, r.sender, 'sender');
+                    const cpDesc   = checkpointDeRemesa(cps, r.addressee, 'addressee');
+
+                    const bloqueCita = (titulo, citaIso, durIso, cp) => {
+                        const cita  = fmtCitaCol(citaIso);
+                        const dur   = fmtDuracionPactada(durIso);
+                        const comp  = compararCitaConDeteccion(citaIso, cp);
+                        const perm  = compararPermanencia(durIso, cp);
+                        return `
                             <div style="margin-top:9px;padding-top:9px;border-top:1px dashed rgba(6,182,212,0.25);">
                                 <div style="color:#64748b;font-size:11px;font-weight:600;margin-bottom:3px;">${titulo}</div>
-                                <div style="font-weight:600;color:${cita ? '#0f172a' : '#94a3b8'};">${cita || 'Sin cita registrada'}</div>
-                                ${dur ? '<div style="color:#64748b;">Pactado ' + dur + '</div>' : ''}
+                                <div style="font-weight:600;color:${cita ? '#0f172a' : '#94a3b8'};">
+                                    ${cita || 'Sin cita registrada'}
+                                    ${dur ? '<span style="font-weight:500;color:#64748b;"> \u00b7 pactado ' + dur + '</span>' : ''}
+                                </div>
+                                ${comp ? `
+                                <div style="margin-top:5px;">
+                                    <span style="display:inline-block;padding:2px 7px;border-radius:6px;font-size:11px;font-weight:700;color:${comp.color};background:${comp.fondo};">${comp.texto}</span>
+                                    ${comp.detalle ? '<span style="color:#64748b;font-size:11px;margin-left:6px;">' + comp.detalle + '</span>' : ''}
+                                </div>` : ''}
+                                ${perm ? `
+                                <div style="margin-top:4px;font-size:11px;color:${perm.color};">
+                                    ${perm.texto}${perm.detalle ? '<span style="color:#94a3b8;"> \u00b7 ' + perm.detalle + '</span>' : ''}
+                                </div>` : ''}
                             </div>`;
+                    };
+
                     return `
                     <div style="border:1px solid rgba(6,182,212,0.15);border-radius:10px;padding:14px;margin-bottom:10px;${i < remesas.length - 1 ? 'margin-bottom:10px;' : ''}">
                         <div style="font-size:12px;font-weight:700;color:#0891b2;margin-bottom:8px;">
                             Remesa ${r.remittance || (i + 1)}
-                            ${r.weight ? '<span style="font-weight:500;color:#64748b;"> · ' + r.weight + ' kg</span>' : ''}
+                            ${r.weight ? '<span style="font-weight:500;color:#64748b;"> \u00b7 ' + r.weight + ' kg</span>' : ''}
                         </div>
                         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12px;">
                             <div>
                                 <div style="color:#64748b;font-size:11px;font-weight:600;margin-bottom:3px;">REMITENTE</div>
                                 <div style="font-weight:600;color:#0f172a;">${(r.sender && r.sender.name) || '-'}</div>
-                                <div style="color:#64748b;">${(r.sender && r.sender.town_name) || ''} ${(r.sender && r.sender.department_name) ? '— ' + r.sender.department_name : ''}</div>
-                                ${bloqueCita('CITA DE CARGUE', citaCargue, durCargue)}
+                                <div style="color:#64748b;">${(r.sender && r.sender.town_name) || ''} ${(r.sender && r.sender.department_name) ? '\u2014 ' + r.sender.department_name : ''}</div>
+                                ${bloqueCita('CITA DE CARGUE', r.date_loaded, r.agreed_load_duration, cpCargue)}
                             </div>
                             <div>
                                 <div style="color:#64748b;font-size:11px;font-weight:600;margin-bottom:3px;">DESTINATARIO</div>
                                 <div style="font-weight:600;color:#0f172a;">${(r.addressee && r.addressee.name) || '-'}</div>
-                                <div style="color:#64748b;">${(r.addressee && r.addressee.town_name) || ''} ${(r.addressee && r.addressee.department_name) ? '— ' + r.addressee.department_name : ''}</div>
-                                ${bloqueCita('CITA DE DESCARGUE', citaDescargue, durDescargue)}
+                                <div style="color:#64748b;">${(r.addressee && r.addressee.town_name) || ''} ${(r.addressee && r.addressee.department_name) ? '\u2014 ' + r.addressee.department_name : ''}</div>
+                                ${bloqueCita('CITA DE DESCARGUE', r.date_unloaded, r.agreed_unload_duration, cpDesc)}
                             </div>
                         </div>
                     </div>`;
