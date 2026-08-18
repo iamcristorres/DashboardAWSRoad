@@ -4927,6 +4927,43 @@
             return suffix ? clean + ' ' + suffix : clean;
         }
 
+        /**
+         * Formatea una cita de cargue o descargue (remittances[].date_loaded /
+         * date_unloaded) en hora Colombia (UTC-5).
+         *
+         * AVL360 envia estas dos fechas en UTC, con sufijo Z. El resto de fechas del viaje
+         * (estimatedPassageAt, entryTime, exitTime) las normaliza la API a hora Colombia al
+         * escribir el viaje, por lo que llegan sin Z. Sin convertir, la cita se mostraria
+         * cinco horas adelantada frente al resto de la pantalla.
+         *
+         * La conversion se aplica solo cuando el valor trae la Z, para que el resultado siga
+         * siendo correcto si mas adelante la API normaliza tambien estos dos campos.
+         */
+        function fmtCitaCol(iso) {
+            if (!iso) return null;
+            const s = String(iso).trim();
+            if (!/Z$/i.test(s)) return s.replace('T', ' ').substring(0, 16);
+            const ms = Date.parse(s);
+            if (isNaN(ms)) return s.replace('T', ' ').replace(/(\.\d+)?Z$/i, '').substring(0, 16);
+            const col = new Date(ms - 5 * 3600 * 1000);
+            const dos = (n) => String(n).padStart(2, '0');
+            return col.getUTCFullYear() + '-' + dos(col.getUTCMonth() + 1) + '-' + dos(col.getUTCDate()) +
+                   ' ' + dos(col.getUTCHours()) + ':' + dos(col.getUTCMinutes());
+        }
+
+        /**
+         * Duracion pactada de cargue o descargue: '02:00:00' -> '2 h', '01:30:00' -> '1 h 30 min'.
+         */
+        function fmtDuracionPactada(dur) {
+            if (!dur) return null;
+            const partes = String(dur).split(':');
+            if (partes.length < 2) return String(dur);
+            const h = parseInt(partes[0], 10) || 0;
+            const m = parseInt(partes[1], 10) || 0;
+            if (!h && !m) return '0 min';
+            return (h ? h + ' h' : '') + (h && m ? ' ' : '') + (m ? m + ' min' : '');
+        }
+
         // ==================== GESTIÓN DE TABS ====================
         function switchTab(tabName, evt) {
             // Ocultar todos los tabs
@@ -6579,7 +6616,20 @@
             document.getElementById('tipRemesasCount').textContent = '(' + remesas.length + ')';
             const remHtml = remesas.length === 0
                 ? '<p style="color:#94a3b8;font-size:13px;">Sin remesas registradas</p>'
-                : remesas.map((r, i) => `
+                : remesas.map((r, i) => {
+                    // Citas pactadas de cargue y descargue. Llegan en UTC desde AVL360, por eso
+                    // pasan por fmtCitaCol, que las lleva a hora Colombia.
+                    const citaCargue    = fmtCitaCol(r.date_loaded);
+                    const citaDescargue = fmtCitaCol(r.date_unloaded);
+                    const durCargue     = fmtDuracionPactada(r.agreed_load_duration);
+                    const durDescargue  = fmtDuracionPactada(r.agreed_unload_duration);
+                    const bloqueCita = (titulo, cita, dur) => `
+                            <div style="margin-top:9px;padding-top:9px;border-top:1px dashed rgba(6,182,212,0.25);">
+                                <div style="color:#64748b;font-size:11px;font-weight:600;margin-bottom:3px;">${titulo}</div>
+                                <div style="font-weight:600;color:${cita ? '#0f172a' : '#94a3b8'};">${cita || 'Sin cita registrada'}</div>
+                                ${dur ? '<div style="color:#64748b;">Pactado ' + dur + '</div>' : ''}
+                            </div>`;
+                    return `
                     <div style="border:1px solid rgba(6,182,212,0.15);border-radius:10px;padding:14px;margin-bottom:10px;${i < remesas.length - 1 ? 'margin-bottom:10px;' : ''}">
                         <div style="font-size:12px;font-weight:700;color:#0891b2;margin-bottom:8px;">
                             Remesa ${r.remittance || (i + 1)}
@@ -6590,14 +6640,17 @@
                                 <div style="color:#64748b;font-size:11px;font-weight:600;margin-bottom:3px;">REMITENTE</div>
                                 <div style="font-weight:600;color:#0f172a;">${(r.sender && r.sender.name) || '-'}</div>
                                 <div style="color:#64748b;">${(r.sender && r.sender.town_name) || ''} ${(r.sender && r.sender.department_name) ? '— ' + r.sender.department_name : ''}</div>
+                                ${bloqueCita('CITA DE CARGUE', citaCargue, durCargue)}
                             </div>
                             <div>
                                 <div style="color:#64748b;font-size:11px;font-weight:600;margin-bottom:3px;">DESTINATARIO</div>
                                 <div style="font-weight:600;color:#0f172a;">${(r.addressee && r.addressee.name) || '-'}</div>
                                 <div style="color:#64748b;">${(r.addressee && r.addressee.town_name) || ''} ${(r.addressee && r.addressee.department_name) ? '— ' + r.addressee.department_name : ''}</div>
+                                ${bloqueCita('CITA DE DESCARGUE', citaDescargue, durDescargue)}
                             </div>
                         </div>
-                    </div>`).join('');
+                    </div>`;
+                }).join('');
             document.getElementById('tipRemesasContent').innerHTML = remHtml;
 
             // Eventos parametrizados
