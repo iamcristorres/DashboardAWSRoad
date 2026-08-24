@@ -18437,13 +18437,8 @@
                 document.getElementById('memCurrentTrip').textContent =
                     'Eliminando: ' + (meta.plate || id) + ' (' + (i + 1) + '/' + total + ')...';
                 try {
-                    const res = await fetch(`${API_BASE_URL}/trips/${id}`, {
-                        method: 'DELETE',
-                        headers: { 'Content-Type': 'application/json' }
-                    });
-                    const data = await res.json();
-                    if (res.ok && data.success) { eliminados++; totalItems += (data.deletedItems || 0); }
-                    else { errores++; errDetails.push((meta.plate || id) + ': ' + (data.message || 'Error')); }
+                    totalItems += await eliminarViajeCompleto(id);
+                    eliminados++;
                 } catch (e) {
                     errores++;
                     errDetails.push((meta.plate || id) + ': ' + e.message);
@@ -18567,7 +18562,61 @@
         }
         // ===== fin exportar CSV =====
 
+        // ===== Borrado de viajes (compartido) =====
+        // La API borra por lotes acotados para no exceder el limite de tiempo del
+        // proxy: cada respuesta trae completed y hay que repetir la llamada mientras
+        // sea false. Estas dos funciones concentran ese manejo.
+
+        // Registros que se piden por llamada. Es solo un techo: la API corta cada
+        // lote por tiempo (unos 25 segundos) para no acercarse al limite del proxy,
+        // asi que un lote puede volver con menos registros de los pedidos.
+        const BORRADO_ITEMS_POR_LOTE = 5000;
+
+        // Tope de lotes por viaje: evita un bucle infinito si la API dejara de avanzar.
+        const BORRADO_MAX_LOTES = 200;
+
+        // Lee la respuesta de la API tolerando que el proxy conteste HTML en vez de
+        // JSON. Un 504 de nginx llega como pagina HTML y res.json() fallaba con el
+        // confuso "Unexpected token '<'".
+        async function leerRespuestaApi(res) {
+            const texto = await res.text();
+            try {
+                return JSON.parse(texto);
+            } catch (e) {
+                if (res.status === 504) {
+                    throw new Error('El servidor tardo demasiado en responder (HTTP 504). ' +
+                        'Lo que alcanzo a procesarse quedo hecho: vuelve a intentarlo para continuar.');
+                }
+                if (res.status === 502 || res.status === 503) {
+                    throw new Error('La API no esta respondiendo (HTTP ' + res.status + '). ' +
+                        'Intentalo de nuevo en un momento.');
+                }
+                throw new Error('Respuesta no valida del servidor (HTTP ' + res.status + ').');
+            }
+        }
+
+        // Elimina un viaje completo encadenando los lotes que haga falta.
+        // Devuelve el total de registros DynamoDB borrados.
+        async function eliminarViajeCompleto(vehicleNumericId) {
+            let totalItems = 0;
+            for (let lote = 0; lote < BORRADO_MAX_LOTES; lote++) {
+                const res = await fetch(
+                    `${API_BASE_URL}/trips/${vehicleNumericId}?max_items=${BORRADO_ITEMS_POR_LOTE}`,
+                    { method: 'DELETE', headers: { 'Content-Type': 'application/json' } }
+                );
+                const data = await leerRespuestaApi(res);
+                if (!res.ok || !data.success) {
+                    throw new Error(extractApiError(data, 'Error al eliminar el viaje.'));
+                }
+                totalItems += (data.deletedItems || 0);
+                if (data.completed !== false) return totalItems;
+            }
+            throw new Error('El viaje tiene demasiados registros y no se pudo terminar de eliminar.');
+        }
+
         // ===== Purgar toda la base de datos =====
+        let _purgaDetenida = false;
+
         function abrirModalPurgarBD() {
             document.getElementById('purgarConfirmInput').value = '';
             document.getElementById('purgarError').style.display = 'none';
@@ -18576,12 +18625,15 @@
             document.getElementById('purgarProgressText').textContent = '';
             document.getElementById('purgarConfirmBtn').disabled = false;
             document.getElementById('purgarCancelBtn').disabled = false;
+            document.getElementById('purgarCancelBtn').textContent = 'Cancelar';
+            _purgaDetenida = false;
             document.getElementById('modalPurgarBD').style.display = 'flex';
             lucide.createIcons();
             setTimeout(() => document.getElementById('purgarConfirmInput').focus(), 80);
         }
 
         function cerrarModalPurgarBD() {
+            _purgaDetenida = true;
             document.getElementById('modalPurgarBD').style.display = 'none';
         }
 
@@ -18595,47 +18647,99 @@
             }
             errEl.style.display = 'none';
 
-            document.getElementById('purgarConfirmBtn').disabled = true;
-            document.getElementById('purgarCancelBtn').disabled  = true;
+            const barra  = document.getElementById('purgarProgressBar');
+            const texto  = document.getElementById('purgarProgressText');
+            const btnOk  = document.getElementById('purgarConfirmBtn');
+            const btnCan = document.getElementById('purgarCancelBtn');
+
+            btnOk.disabled = true;
+            // El cancelar pasa a ser un "Detener": la purga va por lotes, asi que lo
+            // ya borrado queda borrado y se puede retomar mas tarde.
+            btnCan.textContent = 'Detener';
+            _purgaDetenida = false;
             document.getElementById('purgarProgressWrap').style.display = 'block';
-            document.getElementById('purgarProgressText').textContent = 'Eliminando todos los viajes...';
-            document.getElementById('purgarProgressBar').style.width = '60%';
+            texto.textContent = 'Consultando viajes...';
+            barra.style.width = '0%';
+
+            let viajesEliminados = 0, itemsEliminados = 0, totalViajes = null, lotesSinAvance = 0;
+            const inicio = Date.now();
 
             try {
-                const res = await fetch(API_BASE_URL + '/trips', {
-                    method: 'DELETE',
-                    headers: { 'Content-Type': 'application/json' }
-                });
-                const data = await res.json();
-                document.getElementById('purgarProgressBar').style.width = '100%';
-                if (res.ok && data.success) {
-                    cerrarModalPurgarBD();
-                    allActiveTripsCache = null;
-                    _closedTripsData    = [];
-                    window._displayedTrips = null;
-                    document.getElementById('activeTripsContainer').innerHTML =
-                        '<div class="alert alert-info">La base de datos fue purgada. Haz clic en Actualizar para verificar.</div>';
-                    const nota = document.createElement('div');
-                    nota.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#64748b;color:white;padding:14px 20px;border-radius:12px;font-size:13px;font-weight:600;z-index:99999;box-shadow:0 4px 20px rgba(100,116,139,0.4);max-width:400px;';
-                    nota.textContent = data.message || 'Base de datos purgada correctamente.';
-                    document.body.appendChild(nota);
-                    setTimeout(() => nota.remove(), 8000);
-                } else {
-                    document.getElementById('purgarProgressBar').style.width = '0%';
-                    document.getElementById('purgarProgressText').textContent = '';
-                    document.getElementById('purgarConfirmBtn').disabled = false;
-                    document.getElementById('purgarCancelBtn').disabled  = false;
-                    errEl.textContent = data.message || data.detail || 'Error al purgar la base de datos.';
-                    errEl.style.display = 'block';
+                while (true) {
+                    const res = await fetch(
+                        API_BASE_URL + '/trips?max_items=' + BORRADO_ITEMS_POR_LOTE,
+                        { method: 'DELETE', headers: { 'Content-Type': 'application/json' } }
+                    );
+                    const data = await leerRespuestaApi(res);
+                    if (!res.ok || !data.success) {
+                        throw new Error(extractApiError(data, 'Error al purgar la base de datos.'));
+                    }
+
+                    viajesEliminados += (data.deletedTrips || 0);
+                    itemsEliminados  += (data.deletedItems || 0);
+                    if (totalViajes === null) {
+                        totalViajes = viajesEliminados + (data.remainingTrips || 0);
+                    }
+
+                    if (data.completed) break;
+
+                    // Un lote sin avance suele ser DynamoDB pidiendo bajar el ritmo:
+                    // se reintenta un par de veces antes de darlo por fallido.
+                    if (!data.deletedTrips && !data.deletedItems) {
+                        if (++lotesSinAvance >= 3) {
+                            throw new Error('La purga no avanzo en los ultimos 3 lotes. Revisa el estado de la API.');
+                        }
+                    } else {
+                        lotesSinAvance = 0;
+                    }
+
+                    const pct = totalViajes ? Math.round((viajesEliminados / totalViajes) * 100) : 0;
+                    barra.style.width = pct + '%';
+                    texto.textContent = _textoProgresoPurga(
+                        viajesEliminados, totalViajes, itemsEliminados, inicio);
+
+                    if (_purgaDetenida) {
+                        // El usuario cerro el modal: se corta el bucle sin marcar error.
+                        return;
+                    }
                 }
+
+                barra.style.width = '100%';
+                cerrarModalPurgarBD();
+                allActiveTripsCache = null;
+                _closedTripsData    = [];
+                window._displayedTrips = null;
+                document.getElementById('activeTripsContainer').innerHTML =
+                    '<div class="alert alert-info">La base de datos fue purgada. Haz clic en Actualizar para verificar.</div>';
+                const nota = document.createElement('div');
+                nota.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#64748b;color:white;padding:14px 20px;border-radius:12px;font-size:13px;font-weight:600;z-index:99999;box-shadow:0 4px 20px rgba(100,116,139,0.4);max-width:400px;';
+                nota.textContent = 'Purga terminada: ' + viajesEliminados + ' viaje(s) y ' +
+                    itemsEliminados.toLocaleString('es-CO') + ' registros eliminados.';
+                document.body.appendChild(nota);
+                setTimeout(() => nota.remove(), 8000);
             } catch (e) {
-                document.getElementById('purgarProgressBar').style.width = '0%';
-                document.getElementById('purgarProgressText').textContent = '';
-                document.getElementById('purgarConfirmBtn').disabled = false;
-                document.getElementById('purgarCancelBtn').disabled  = false;
-                errEl.textContent = 'Error de conexion: ' + e.message;
+                barra.style.width = '0%';
+                texto.textContent = '';
+                btnOk.disabled = false;
+                btnCan.textContent = 'Cancelar';
+                errEl.textContent = e.message +
+                    (viajesEliminados ? ' Se alcanzaron a eliminar ' + viajesEliminados + ' viaje(s).' : '');
                 errEl.style.display = 'block';
             }
+        }
+
+        // Arma el texto de avance de la purga con una estimacion del tiempo restante
+        // basada en el ritmo real de los lotes ya procesados.
+        function _textoProgresoPurga(viajes, totalViajes, items, inicio) {
+            let linea = 'Eliminados ' + viajes + ' de ' + totalViajes + ' viaje(s) - ' +
+                items.toLocaleString('es-CO') + ' registros';
+            if (viajes > 0 && totalViajes > viajes) {
+                const seg = ((Date.now() - inicio) / 1000) * (totalViajes - viajes) / viajes;
+                linea += ' - faltan ~' + (seg >= 3600
+                    ? Math.round(seg / 3600) + ' h'
+                    : Math.max(1, Math.round(seg / 60)) + ' min');
+            }
+            return linea;
         }
         // ===== fin purgar BD =====
 
@@ -18758,27 +18862,19 @@
             const errEl = document.getElementById('mevError');
             errEl.style.display = 'none';
             try {
-                const res = await fetch(`${API_BASE_URL}/trips/${_closedTripsPendingId}`, {
-                    method: 'DELETE',
-                    headers: { 'Content-Type': 'application/json' }
-                });
-                const data = await res.json();
-                if (!res.ok) {
-                    errEl.textContent = data.message || JSON.stringify(data.detail || data);
-                    errEl.style.display = 'block';
-                    return;
-                }
+                const itemsBorrados = await eliminarViajeCompleto(_closedTripsPendingId);
                 cerrarModalEliminarViaje();
                 _closedTripsData = _closedTripsData.filter(t => t.vehicleNumericId !== _closedTripsPendingId);
                 renderClosedTripsTable(_closedTripsData);
                 lucide.createIcons();
                 const notaD = document.createElement('div');
                 notaD.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#64748b;color:white;padding:14px 20px;border-radius:12px;font-size:13px;font-weight:600;z-index:99999;box-shadow:0 4px 20px rgba(100,116,139,0.4);';
-                notaD.textContent = 'Viaje ' + _closedTripsPendingPlate + ' eliminado (' + (data.deletedItems || 0) + ' registros borrados).';
+                notaD.textContent = 'Viaje ' + _closedTripsPendingPlate + ' eliminado (' +
+                    itemsBorrados.toLocaleString('es-CO') + ' registros borrados).';
                 document.body.appendChild(notaD);
                 setTimeout(() => notaD.remove(), 5000);
             } catch (err) {
-                errEl.textContent = 'Error de red: ' + err.message;
+                errEl.textContent = err.message;
                 errEl.style.display = 'block';
             }
         }
@@ -19029,7 +19125,8 @@
             <div style="background:#fef2f2;border:2px solid #fecaca;border-radius:12px;padding:16px;margin-bottom:20px;">
                 <p style="margin:0 0 6px;font-size:14px;font-weight:800;color:#dc2626;">ADVERTENCIA CRITICA</p>
                 <p style="margin:0 0 6px;font-size:13px;color:#7f1d1d;line-height:1.5;">Esta accion eliminara <strong>absolutamente todos</strong> los viajes de la base de datos DynamoDB: configuraciones, rutas, posiciones GPS, eventos y checkpoints.</p>
-                <p style="margin:0;font-size:13px;color:#7f1d1d;font-weight:700;">Esta operacion es IRREVERSIBLE. No hay forma de recuperar los datos.</p>
+                <p style="margin:0 0 6px;font-size:13px;color:#7f1d1d;font-weight:700;">Esta operacion es IRREVERSIBLE. No hay forma de recuperar los datos.</p>
+                <p style="margin:0;font-size:12px;color:#7f1d1d;line-height:1.5;">El borrado se hace por lotes y puede tardar horas segun el volumen. Deja esta ventana abierta mientras avanza; puedes detenerla en cualquier momento y retomarla despues sin perder lo ya borrado.</p>
             </div>
 
             <div style="margin-bottom:20px;">
