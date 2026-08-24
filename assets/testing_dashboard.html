@@ -4580,6 +4580,14 @@
                                 </tbody>
                             </table>
                         </div>
+                        <div style="display:none;align-items:center;justify-content:center;gap:12px;padding:16px 0 4px;">
+                            <button id="btnCargarMasCerrados" onclick="cargarPaginaViajesCerrados(true)"
+                                style="display:flex;align-items:center;gap:8px;padding:9px 20px;background:rgba(15,23,42,0.04);color:#334155;border:1px solid rgba(15,23,42,0.12);border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;">
+                                <i data-lucide="chevron-down" style="width:15px;height:15px;"></i>
+                                Cargar mas
+                            </button>
+                            <span style="font-size:12px;color:rgba(15,23,42,0.45);"></span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -18069,75 +18077,110 @@
         let _closedBulkSelectedIds = new Set();
         let _closedBulkSelectedMeta = {};
 
+        // Estado de la pagina actual de viajes cerrados. La API pagina y filtra en el
+        // servidor: el historico completo son ~1780 viajes y traerlos de una vez
+        // costaba 90 s y 33 MB.
+        const CERRADOS_POR_PAGINA = 50;
+        let _closedTripsTotal = 0;
+        let _closedTripsFiltros = null;
+
         async function buscarViajesCerrados() {
-            const plate    = document.getElementById('closedPlate').value.trim();
-            const manifest = document.getElementById('closedManifest').value.trim();
-            const nit      = document.getElementById('closedNit').value.trim();
-            const dateFrom = document.getElementById('closedDateFrom').value; // 'YYYY-MM-DD' o ''
-            const dateTo   = document.getElementById('closedDateTo').value;   // 'YYYY-MM-DD' o ''
-            const errEl    = document.getElementById('closedTripsError');
-            const loadEl   = document.getElementById('closedTripsLoading');
-            const resEl    = document.getElementById('closedTripsResults');
-
+            const errEl = document.getElementById('closedTripsError');
             errEl.style.display = 'none';
-            resEl.style.display = 'none';
+            document.getElementById('closedTripsResults').style.display = 'none';
 
+            const dateFrom = document.getElementById('closedDateFrom').value; // 'YYYY-MM-DD' o ''
+            const dateTo   = document.getElementById('closedDateTo').value;
             if (dateFrom && dateTo && dateFrom > dateTo) {
                 errEl.textContent = 'La fecha de inicio no puede ser posterior a la fecha de fin.';
                 errEl.style.display = 'block';
                 return;
             }
 
-            loadEl.style.display = 'block';
+            // Se congelan los filtros de esta busqueda para que "Cargar mas" siga
+            // pidiendo lo mismo aunque el usuario toque los campos despues.
+            _closedTripsFiltros = {
+                plate:    document.getElementById('closedPlate').value.trim(),
+                manifest: document.getElementById('closedManifest').value.trim(),
+                nit:      document.getElementById('closedNit').value.trim(),
+                dateFrom: dateFrom,
+                dateTo:   dateTo,
+            };
+            _closedTripsData = [];
+            _closedTripsTotal = 0;
+            _closedBulkSelectedIds.clear();
+            _closedBulkSelectedMeta = {};
 
-            let url = `${API_BASE_URL}/trips/closed`;
-            const params = [];
-            if (plate)    params.push(`plate=${encodeURIComponent(plate)}`);
-            if (manifest) params.push(`manifest=${encodeURIComponent(manifest)}`);
-            if (params.length) url += '?' + params.join('&');
+            await cargarPaginaViajesCerrados(false);
+        }
+
+        async function cargarPaginaViajesCerrados(esCargarMas) {
+            if (!_closedTripsFiltros) return;
+            const f      = _closedTripsFiltros;
+            const errEl  = document.getElementById('closedTripsError');
+            const loadEl = document.getElementById('closedTripsLoading');
+            const resEl  = document.getElementById('closedTripsResults');
+            const btnMas = document.getElementById('btnCargarMasCerrados');
+
+            errEl.style.display = 'none';
+            if (esCargarMas) {
+                if (btnMas) { btnMas.disabled = true; btnMas.textContent = 'Cargando...'; }
+            } else {
+                loadEl.style.display = 'block';
+            }
+
+            const params = [`limit=${CERRADOS_POR_PAGINA}`, `offset=${_closedTripsData.length}`];
+            if (f.plate)    params.push(`plate=${encodeURIComponent(f.plate)}`);
+            if (f.manifest) params.push(`manifest=${encodeURIComponent(f.manifest)}`);
+            if (f.dateFrom) params.push(`date_from=${f.dateFrom}`);
+            if (f.dateTo)   params.push(`date_to=${f.dateTo}`);
 
             const headers = { 'Content-Type': 'application/json' };
-            if (nit) headers['X-Tenant-NIT'] = nit;
+            if (f.nit) headers['X-Tenant-NIT'] = f.nit;
 
             try {
-                const res = await fetch(url, { headers });
-                const data = await res.json();
-                loadEl.style.display = 'none';
-
+                const res  = await fetch(`${API_BASE_URL}/trips/closed?` + params.join('&'), { headers });
+                const data = await leerRespuestaApi(res);
                 if (!res.ok || !data.success) {
-                    errEl.textContent = 'Error: ' + (data.message || JSON.stringify(data.detail || data));
-                    errEl.style.display = 'block';
-                    return;
+                    throw new Error(extractApiError(data, 'No se pudieron consultar los viajes cerrados.'));
                 }
 
-                // Filtro por rango de fechas de finalizacion (closedAt) en el cliente.
-                // closedAt viene como 'YYYY-MM-DDTHH:mm:ss-05:00'; se compara la parte de fecha.
-                _closedTripsData = (data.trips || []).filter(t => {
-                    if (!dateFrom && !dateTo) return true;
-                    const fecha = (t.closedAt || '').substring(0, 10); // 'YYYY-MM-DD'
-                    if (!fecha) return false;
-                    if (dateFrom && fecha < dateFrom) return false;
-                    if (dateTo && fecha > dateTo) return false;
-                    return true;
-                });
+                _closedTripsData = _closedTripsData.concat(data.trips || []);
+                _closedTripsTotal = data.total || _closedTripsData.length;
                 renderClosedTripsTable(_closedTripsData);
                 resEl.style.display = 'block';
                 lucide.createIcons();
             } catch (err) {
-                loadEl.style.display = 'none';
-                errEl.textContent = 'Error de red: ' + err.message;
+                errEl.textContent = err.message;
                 errEl.style.display = 'block';
+            } finally {
+                loadEl.style.display = 'none';
+                if (btnMas) { btnMas.disabled = false; btnMas.textContent = 'Cargar mas'; }
             }
         }
 
         function renderClosedTripsTable(trips) {
             const countEl = document.getElementById('closedTripsCount');
             const tbody   = document.getElementById('closedTripsTableBody');
-            if (countEl) countEl.textContent = `${trips.length} viaje${trips.length !== 1 ? 's' : ''}`;
+            const total   = _closedTripsTotal || trips.length;
+            if (countEl) {
+                countEl.textContent = trips.length < total
+                    ? `${trips.length} de ${total.toLocaleString('es-CO')} viajes`
+                    : `${total.toLocaleString('es-CO')} viaje${total !== 1 ? 's' : ''}`;
+            }
 
-            // Actualizar texto del boton "Sel. todos"
+            // "Sel. todos" opera sobre lo que ya esta cargado en la tabla
             const btnSelAll = document.getElementById('btnCBSelAll');
             if (btnSelAll) btnSelAll.textContent = 'Sel. todos (' + trips.length + ')';
+
+            const btnMas = document.getElementById('btnCargarMasCerrados');
+            if (btnMas) {
+                const faltan = total - trips.length;
+                btnMas.parentElement.style.display = faltan > 0 ? 'flex' : 'none';
+                btnMas.nextElementSibling.textContent = faltan > 0
+                    ? `Faltan ${faltan.toLocaleString('es-CO')} viaje${faltan !== 1 ? 's' : ''} por cargar`
+                    : '';
+            }
 
             if (trips.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="9" style="padding:30px;text-align:center;color:rgba(15,23,42,0.4);">No se encontraron viajes cerrados con los filtros indicados.</td></tr>';
@@ -18366,6 +18409,7 @@
                 // Quitar los reactivados de la lista y limpiar seleccion
                 const idsReactivados = new Set(ids.slice(0, reactivados + errores));
                 _closedTripsData = _closedTripsData.filter(t => !idsReactivados.has(String(t.vehicleNumericId)));
+                _closedTripsTotal = Math.max(0, _closedTripsTotal - reactivados);
                 _closedBulkSelectedIds.clear();
                 _closedBulkSelectedMeta = {};
                 cerrarModalReabrirMasivo();
@@ -18459,6 +18503,7 @@
             if (eliminados > 0) {
                 const eliminadosIds = new Set(ids.slice(0, eliminados + errores));
                 _closedTripsData = _closedTripsData.filter(t => !eliminadosIds.has(String(t.vehicleNumericId)));
+                _closedTripsTotal = Math.max(0, _closedTripsTotal - eliminados);
                 _closedBulkSelectedIds.clear();
                 _closedBulkSelectedMeta = {};
                 cerrarModalEliminarMasivo();
@@ -18827,6 +18872,7 @@
                 }
                 cerrarModalReabrirViaje();
                 _closedTripsData = _closedTripsData.filter(t => t.vehicleNumericId !== _closedTripsPendingId);
+                _closedTripsTotal = Math.max(0, _closedTripsTotal - 1);
                 renderClosedTripsTable(_closedTripsData);
                 lucide.createIcons();
                 const notaR = document.createElement('div');
@@ -18865,6 +18911,7 @@
                 const itemsBorrados = await eliminarViajeCompleto(_closedTripsPendingId);
                 cerrarModalEliminarViaje();
                 _closedTripsData = _closedTripsData.filter(t => t.vehicleNumericId !== _closedTripsPendingId);
+                _closedTripsTotal = Math.max(0, _closedTripsTotal - 1);
                 renderClosedTripsTable(_closedTripsData);
                 lucide.createIcons();
                 const notaD = document.createElement('div');
