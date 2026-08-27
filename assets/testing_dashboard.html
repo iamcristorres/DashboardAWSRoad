@@ -3937,6 +3937,24 @@
                     <!-- ID de compatibilidad para código antiguo que aún referencia statVehicles -->
                     <span id="statVehicles" style="display:none;"></span>
 
+                    <!-- Sub-pestanas del area del mapa: el mapa detallado y la vista
+                         simple de paso por puestos de control. Solo cambian que se ve en
+                         este panel; el resumen del viaje de arriba se mantiene. -->
+                    <div id="mapViewTabs" style="display:flex;gap:8px;margin-bottom:12px;">
+                        <button id="mapViewTabMapa" onclick="switchMapView('mapa')"
+                                style="display:flex;align-items:center;gap:7px;padding:9px 18px;border-radius:12px;
+                                       border:1px solid rgba(6,182,212,0.35);background:rgba(6,182,212,0.12);
+                                       color:#0e7490;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;">
+                            <i data-lucide="map" style="width:15px;height:15px;"></i> Mapa
+                        </button>
+                        <button id="mapViewTabPuestos" onclick="switchMapView('puestos')"
+                                style="display:flex;align-items:center;gap:7px;padding:9px 18px;border-radius:12px;
+                                       border:1px solid rgba(15,23,42,0.12);background:rgba(255,255,255,0.7);
+                                       color:#64748b;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">
+                            <i data-lucide="flag" style="width:15px;height:15px;"></i> Puestos de control
+                        </button>
+                    </div>
+
                     <!-- Barra de capas: mostrar/ocultar marcadores del mapa -->
                     <div id="mapLayerBar" style="display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;background:rgba(255,255,255,0.7);backdrop-filter:blur(20px);padding:12px 16px;border-radius:12px;margin-bottom:12px;border:1px solid rgba(6,182,212,0.15);font-size:13px;">
                         <span style="font-weight:700;color:rgba(15,23,42,0.7);display:flex;align-items:center;gap:6px;">
@@ -3970,6 +3988,44 @@
                     </div>
 
                     <div id="mapContainer" style="height: 600px; border-radius: 16px; overflow: hidden; border: 1px solid rgba(6, 182, 212, 0.2); box-shadow: 0 8px 32px rgba(6, 182, 212, 0.15);"></div>
+
+                    <!-- Vista simple de paso por puestos de control (sub-pestana) -->
+                    <div id="puestosPanel" style="display:none;background:rgba(255,255,255,0.75);backdrop-filter:blur(20px);
+                                border-radius:16px;border:1px solid rgba(6,182,212,0.2);
+                                box-shadow:0 8px 32px rgba(6,182,212,0.12);padding:22px;min-height:600px;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;
+                                    margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid rgba(15,23,42,0.08);">
+                            <div>
+                                <div style="font-size:17px;font-weight:700;color:#0f172a;display:flex;align-items:center;gap:9px;">
+                                    <i data-lucide="flag" style="width:19px;height:19px;color:#10b981;"></i>
+                                    Paso por puestos de control
+                                </div>
+                                <div style="font-size:12px;color:#64748b;margin-top:4px;">
+                                    Si el vehiculo paso o no por cada punto. No mide cumplimiento de horarios.
+                                </div>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+                                <span style="display:flex;align-items:center;gap:6px;font-size:12px;color:#475569;">
+                                    <span style="width:11px;height:11px;border-radius:50%;background:#16a34a;display:inline-block;"></span> Paso
+                                </span>
+                                <span style="display:flex;align-items:center;gap:6px;font-size:12px;color:#475569;">
+                                    <span style="width:11px;height:11px;border-radius:50%;background:#dc2626;display:inline-block;"></span> Sin registro
+                                </span>
+                                <span style="display:flex;align-items:center;gap:6px;font-size:12px;color:#475569;">
+                                    <span style="width:11px;height:11px;border-radius:50%;background:#cbd5e1;display:inline-block;"></span> Por delante
+                                </span>
+                                <span onclick="cargarCheckpointsViaje()" title="Actualizar"
+                                      style="cursor:pointer;color:#10b981;display:flex;align-items:center;padding:4px;border-radius:6px;">
+                                    <i data-lucide="refresh-cw" style="width:15px;height:15px;"></i>
+                                </span>
+                            </div>
+                        </div>
+                        <div id="puestosContent">
+                            <p style="color:#94a3b8;font-size:13px;text-align:center;padding:40px 0;">
+                                Abre un viaje desde Viajes Activos para ver sus puestos de control.
+                            </p>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Panel lateral con información -->
@@ -7076,6 +7132,10 @@
             currentMapTripRouteGeometry = trip.routeGeometry || null;
             currentMapTripLineWeight    = trip.mapRouteLineWeight || 12;
             currentMapTripEventParams  = trip.eventParameterizations || [];
+            // Los puestos de control son de ESTE viaje: se limpian para que la vista
+            // simple no muestre los del viaje anterior mientras llega la respuesta.
+            currentPuestosCheckpoints = [];
+            if (typeof renderPuestosTimeline === 'function') renderPuestosTimeline();
 
             console.log('[DASHBOARD] openTripInMap:', {
                 plate, manifest, vehicleNumericId,
@@ -17313,6 +17373,11 @@
                 // Ordenar por order
                 merged.sort((a, b) => (a.order || 0) - (b.order || 0));
 
+                // La vista simple de paso por puestos reutiliza exactamente estos datos:
+                // se guardan aqui para no pedir dos veces lo mismo a la API.
+                currentPuestosCheckpoints = merged;
+                renderPuestosTimeline();
+
                 if (merged.length === 0) {
                     contentEl.innerHTML = '<p style="color:#94a3b8;font-size:13px;text-align:center;padding:20px 0;">Sin puntos de control.</p>';
                     return;
@@ -17589,6 +17654,169 @@
                 contentEl.innerHTML = '<p style="color:#ef4444;font-size:13px;text-align:center;padding:16px 0;">Error al cargar puntos de control.</p>';
                 console.error('[checkpoints]', err);
             }
+        }
+
+        // ==================== VISTA SIMPLE: PASO POR PUESTOS DE CONTROL ====================
+        //
+        // Responde una sola pregunta: por que puntos de control paso el vehiculo y por
+        // cuales no. Deliberadamente NO evalua cumplimiento de citas ni horarios, que es
+        // lo que ya hace el panel "Puntos de Control" del resumen del viaje.
+        //
+        // Semaforo:
+        //   verde  el punto tiene hora de paso registrada
+        //   rojo   sin hora de paso y el vehiculo YA lo dejo atras (paso por un punto
+        //          posterior de la ruta), asi que no lo va a registrar
+        //   gris   sin hora de paso y todavia por delante: aun no le corresponde
+        //
+        // La frontera entre rojo y gris es el punto de mayor orden con paso registrado.
+        // Se usa el orden de la ruta, no el reloj: un vehiculo retrasado no pinta de rojo
+        // los puntos que aun no ha alcanzado.
+        let currentPuestosCheckpoints = [];
+        let currentMapView = 'mapa';
+
+        function switchMapView(vista) {
+            currentMapView = vista;
+            const esMapa = vista === 'mapa';
+
+            const contMapa    = document.getElementById('mapContainer');
+            const contPuestos = document.getElementById('puestosPanel');
+            const barraCapas  = document.getElementById('mapLayerBar');
+            if (contMapa)    contMapa.style.display    = esMapa ? 'block' : 'none';
+            if (contPuestos) contPuestos.style.display = esMapa ? 'none'  : 'block';
+            if (barraCapas)  barraCapas.style.display  = esMapa ? 'flex'  : 'none';
+
+            const activo   = 'display:flex;align-items:center;gap:7px;padding:9px 18px;border-radius:12px;'
+                           + 'border:1px solid rgba(6,182,212,0.35);background:rgba(6,182,212,0.12);'
+                           + 'color:#0e7490;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;';
+            const inactivo = 'display:flex;align-items:center;gap:7px;padding:9px 18px;border-radius:12px;'
+                           + 'border:1px solid rgba(15,23,42,0.12);background:rgba(255,255,255,0.7);'
+                           + 'color:#64748b;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;';
+            const btnMapa    = document.getElementById('mapViewTabMapa');
+            const btnPuestos = document.getElementById('mapViewTabPuestos');
+            if (btnMapa)    btnMapa.style.cssText    = esMapa ? activo : inactivo;
+            if (btnPuestos) btnPuestos.style.cssText = esMapa ? inactivo : activo;
+
+            if (esMapa) {
+                // Leaflet calcula mal su tamano si el contenedor estuvo oculto.
+                if (typeof map !== 'undefined' && map) setTimeout(() => map.invalidateSize(), 60);
+            } else {
+                if (currentPuestosCheckpoints.length === 0 && typeof currentMapTripNumericId !== 'undefined'
+                        && currentMapTripNumericId) {
+                    cargarCheckpointsViaje();
+                } else {
+                    renderPuestosTimeline();
+                }
+            }
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+
+        function _puestoFechaHora(valor) {
+            // Las horas del viaje vienen en hora Colombia como "2026-08-26T14:25:16".
+            // Se formatea sin convertir zona horaria para no correr la hora cinco horas.
+            if (!valor) return null;
+            const s = String(valor).replace('T', ' ');
+            const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[ ](\d{2}):(\d{2})/);
+            if (!m) return s.substring(0, 16);
+            return `${m[3]}/${m[2]}/${m[1]} ${m[4]}:${m[5]}`;
+        }
+
+        function renderPuestosTimeline() {
+            const cont = document.getElementById('puestosContent');
+            if (!cont) return;
+
+            const cps = currentPuestosCheckpoints || [];
+            if (cps.length === 0) {
+                cont.innerHTML = '<p style="color:#94a3b8;font-size:13px;text-align:center;padding:40px 0;">'
+                               + 'Este viaje no tiene puestos de control.</p>';
+                return;
+            }
+
+            // Frontera: el punto mas avanzado con paso registrado. Todo lo anterior sin
+            // registro es rojo; todo lo posterior sin registro es gris.
+            let ordenUltimoPaso = -1;
+            cps.forEach(cp => {
+                const orden = Number(cp.order) || 0;
+                if (cp.passedAt && orden > ordenUltimoPaso) ordenUltimoPaso = orden;
+            });
+
+            let nPaso = 0, nSinRegistro = 0, nPorDelante = 0;
+            const filas = cps.map((cp, idx) => {
+                const orden = Number(cp.order) || 0;
+                const esUltimo = idx === cps.length - 1;
+                const hora = _puestoFechaHora(cp.passedAt);
+
+                let color, fondo, borde, etiqueta, detalle;
+                if (cp.passedAt) {
+                    nPaso++;
+                    color = '#16a34a'; fondo = '#f0fdf4'; borde = 'rgba(22,163,74,0.25)';
+                    etiqueta = 'Paso';
+                    detalle = `<span style="font-size:13px;font-weight:700;color:#166534;">${hora}</span>`;
+                } else if (orden < ordenUltimoPaso) {
+                    nSinRegistro++;
+                    color = '#dc2626'; fondo = '#fef2f2'; borde = 'rgba(220,38,38,0.25)';
+                    etiqueta = 'Sin registro';
+                    detalle = '<span style="font-size:12px;color:#b91c1c;">El vehiculo ya paso este tramo</span>';
+                } else {
+                    nPorDelante++;
+                    color = '#cbd5e1'; fondo = '#f8fafc'; borde = 'rgba(15,23,42,0.07)';
+                    etiqueta = 'Por delante';
+                    detalle = '<span style="font-size:12px;color:#94a3b8;">Aun no llega</span>';
+                }
+
+                const esOrigen  = String(cp.controlType || '').toUpperCase() === 'ORIGIN';
+                const esDestino = String(cp.controlType || '').toUpperCase() === 'DESTINATION';
+                const tipoBadge = (esOrigen || esDestino)
+                    ? `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;
+                             background:#eef2ff;color:#4338ca;margin-left:8px;">${esOrigen ? 'ORIGEN' : 'DESTINO'}</span>`
+                    : '';
+
+                // Marca del punto donde va el vehiculo: el ultimo con paso registrado.
+                const esActual = cp.passedAt && orden === ordenUltimoPaso;
+                const marcaActual = esActual
+                    ? `<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;
+                             background:#0891b2;color:white;margin-left:8px;">ULTIMO PASO</span>`
+                    : '';
+
+                return `
+                    <div style="display:flex;gap:14px;align-items:stretch;">
+                        <div style="display:flex;flex-direction:column;align-items:center;width:22px;flex-shrink:0;">
+                            <span style="width:15px;height:15px;border-radius:50%;background:${color};
+                                         border:3px solid ${fondo};box-shadow:0 0 0 1px ${borde};margin-top:16px;"></span>
+                            ${esUltimo ? '' : `<span style="flex:1;width:2px;background:rgba(15,23,42,0.08);margin:3px 0;"></span>`}
+                        </div>
+                        <div style="flex:1;background:${fondo};border:1px solid ${borde};border-radius:11px;
+                                    padding:11px 15px;margin-bottom:7px;display:flex;align-items:center;
+                                    justify-content:space-between;gap:14px;flex-wrap:wrap;">
+                            <div style="display:flex;align-items:center;gap:11px;min-width:0;">
+                                <span style="font-size:11px;font-weight:700;color:#94a3b8;min-width:26px;">#${orden}</span>
+                                <span style="font-size:14px;font-weight:600;color:#0f172a;">${cp.name || '-'}</span>
+                                ${tipoBadge}${marcaActual}
+                            </div>
+                            <div style="display:flex;align-items:center;gap:12px;">
+                                <span style="font-size:11px;font-weight:700;color:${cp.passedAt ? '#166534' : color};
+                                             text-transform:uppercase;letter-spacing:0.3px;">${etiqueta}</span>
+                                ${detalle}
+                            </div>
+                        </div>
+                    </div>`;
+            }).join('');
+
+            const resumen = `
+                <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">
+                    <span style="font-size:12px;padding:5px 13px;border-radius:11px;background:#f0fdf4;
+                                 color:#16a34a;font-weight:700;">${nPaso} de ${cps.length} pasados</span>
+                    ${nSinRegistro > 0
+                        ? `<span style="font-size:12px;padding:5px 13px;border-radius:11px;background:#fef2f2;
+                                 color:#dc2626;font-weight:700;">${nSinRegistro} sin registro</span>`
+                        : ''}
+                    ${nPorDelante > 0
+                        ? `<span style="font-size:12px;padding:5px 13px;border-radius:11px;background:#f8fafc;
+                                 color:#94a3b8;font-weight:700;">${nPorDelante} por delante</span>`
+                        : ''}
+                </div>`;
+
+            cont.innerHTML = resumen + filas;
+            if (typeof lucide !== 'undefined') lucide.createIcons();
         }
 
         // ==================== DIAGNOSTICO LAMBDA GPS (vehiculo activo en mapa) ====================
@@ -18802,6 +19030,10 @@
             currentMapTripRouteGeometry = trip.routeGeometry || null;
             currentMapTripLineWeight    = trip.mapRouteLineWeight || 12;
             currentMapTripEventParams  = trip.eventParameterizations || [];
+            // Los puestos de control son de ESTE viaje: se limpian para que la vista
+            // simple no muestre los del viaje anterior mientras llega la respuesta.
+            currentPuestosCheckpoints = [];
+            if (typeof renderPuestosTimeline === 'function') renderPuestosTimeline();
 
             const plateField = document.getElementById('mapVehiclePlate');
             const manifestField = document.getElementById('mapManifest');
