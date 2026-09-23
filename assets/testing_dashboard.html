@@ -3668,6 +3668,20 @@
                             </div>
                         </div>
 
+                        <!-- Candados satelitales del viaje (CONFIG.Data.lockDevices) -->
+                        <div style="background:white;border-radius:12px;padding:16px;border:1px solid rgba(15,118,110,0.18);">
+                            <div style="font-size:11px;font-weight:700;color:#0f766e;text-transform:uppercase;
+                                        letter-spacing:0.06em;margin-bottom:10px;display:flex;align-items:center;
+                                        justify-content:space-between;gap:6px;">
+                                <span style="display:flex;align-items:center;gap:6px;">
+                                    <i data-lucide="lock" style="width:14px;height:14px;"></i> Candados satelitales
+                                </span>
+                                <span id="tipLockCount" style="font-size:11px;font-weight:600;color:#0f766e;
+                                      background:rgba(15,118,110,0.1);padding:2px 8px;border-radius:10px;">0</span>
+                            </div>
+                            <div id="tipLockDevices"></div>
+                        </div>
+
                         <!-- Diagnostico Lambda GPS -->
                         <div style="background:white;border-radius:12px;padding:16px;border:1px solid rgba(6,182,212,0.15);">
                             <div style="font-size:11px;font-weight:700;color:#06b6d4;text-transform:uppercase;
@@ -4244,6 +4258,10 @@
                         <span class="legend-marker" style="background: #8b5cf6;"></span>
                         <span>Marcador GPS</span>
                     </div>
+                    <div class="legend-item">
+                        <span class="legend-marker" style="background: white; border: 3px solid #0f766e; box-sizing: border-box;"></span>
+                        <span>Posicion candado satelital</span>
+                    </div>
                 </div>
 
                 <!-- Botón para ver histórico completo -->
@@ -4296,6 +4314,15 @@
                         <option value="asc">Desde el inicio</option>
                     </select>
                 </div>
+                <div class="form-group" style="margin: 0; min-width: 170px;">
+                    <label style="font-size: 12px; color: rgba(15,23,42,0.6); margin-bottom: 6px; display: block;">Fuente</label>
+                    <select id="mapPosSource" onchange="loadMapPositions()" title="GPS del vehiculo, candado satelital o ambos"
+                            style="padding: 8px 10px; border: 1px solid rgba(139,92,246,0.3); border-radius: 10px; font-size: 13px; width: 100%; background: white;">
+                        <option value="ALL" selected>Todas (GPS y candado)</option>
+                        <option value="GPS">Solo GPS del vehiculo</option>
+                        <option value="LOCK">Solo candado satelital</option>
+                    </select>
+                </div>
                 <button onclick="loadMapPositions()" style="padding: 9px 20px; background: linear-gradient(135deg, #8b5cf6, #7c3aed); color: white; border: none; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; white-space: nowrap;">
                     <i data-lucide="refresh-cw" style="width: 15px; height: 15px;"></i> Actualizar
                 </button>
@@ -4327,6 +4354,9 @@
             <!-- Estado / contador -->
             <div id="mapPosStatus" style="display: none; margin-bottom: 14px; padding: 10px 16px; border-radius: 10px; font-size: 13px; background: rgba(139,92,246,0.08); border: 1px solid rgba(139,92,246,0.2); color: #7c3aed;"></div>
 
+            <!-- Resumen por fuente: GPS del vehiculo vs candado satelital (solo si hay candado) -->
+            <div id="mapPosSourceSummary" style="display: none; gap: 12px; flex-wrap: wrap; margin-bottom: 14px;"></div>
+
             <!-- Tabla de posiciones -->
             <div id="mapPosTableContainer" style="display: none; max-height: 340px; overflow-y: auto; border-radius: 12px; border: 1px solid rgba(139,92,246,0.15);">
                 <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
@@ -4340,6 +4370,7 @@
                             <th style="padding: 10px 12px; text-align: right; font-weight: 600; color: #7c3aed; border-bottom: 1px solid rgba(139,92,246,0.15);">Latitud</th>
                             <th style="padding: 10px 12px; text-align: right; font-weight: 600; color: #7c3aed; border-bottom: 1px solid rgba(139,92,246,0.15);">Longitud</th>
                             <th style="padding: 10px 12px; text-align: left; font-weight: 600; color: #7c3aed; border-bottom: 1px solid rgba(139,92,246,0.15);">Ubicacion</th>
+                            <th style="padding: 10px 12px; text-align: left; font-weight: 600; color: #7c3aed; border-bottom: 1px solid rgba(139,92,246,0.15);">Fuente</th>
                             <th style="padding: 10px 12px; text-align: left; font-weight: 600; color: #7c3aed; border-bottom: 1px solid rgba(139,92,246,0.15);">Proveedor</th>
                         </tr>
                     </thead>
@@ -6704,6 +6735,50 @@
             document.body.removeChild(tmp);
         }
 
+        // Candados satelitales del viaje. Los datos vienen del detalle by-freight
+        // (lockDevices, sin la clave). lockStatus, lastSourceTs, lastBattery y
+        // externalTripId los escribe la lambda del candado; el ID de viaje solo existe
+        // cuando el candado queda sellado, por eso se muestra como pendiente hasta entonces.
+        function renderTipLockDevices(locks) {
+            const cont  = document.getElementById('tipLockDevices');
+            const count = document.getElementById('tipLockCount');
+            if (!cont) return;
+            const lista = Array.isArray(locks) ? locks : [];
+            if (count) count.textContent = lista.length;
+            if (!lista.length) {
+                cont.innerHTML = '<div style="font-size:12px;color:#94a3b8;">Este viaje no tiene candado satelital registrado.</div>';
+                return;
+            }
+            cont.innerHTML = lista.map(l => {
+                const conectado = l.lockStatus === true;
+                const estado = conectado
+                    ? '<span style="color:#22c55e;font-weight:600;">● Reportando</span>'
+                    : '<span style="color:#ef4444;font-weight:600;">● Sin datos</span>';
+                const mensaje = l.lockMessageIntegration
+                    ? ' <span style="color:#94a3b8;font-size:11px;">— ' + _escHtml(l.lockMessageIntegration) + '</span>' : '';
+                const idViaje = l.externalTripId
+                    ? '<b>' + _escHtml(l.externalTripId) + '</b>'
+                    : '<span style="color:#d97706;font-weight:600;">Pendiente (se asigna al sellar el candado)</span>';
+                const fechaUltimo = l.lastSourceTs ? parseHoraCol(l.lastSourceTs) : null;
+                const ultimo = l.lastSourceTs
+                    ? fmtTs(l.lastSourceTs, 'COL') +
+                      (fechaUltimo ? ' <span style="color:#94a3b8;">(' + getTimeAgo(fechaUltimo) + ')</span>' : '')
+                    : '<span style="color:#94a3b8;">Sin reportes aun</span>';
+                return `<div style="padding:10px 12px;border-radius:10px;background:rgba(15,118,110,0.04);
+                                    border:1px solid rgba(15,118,110,0.12);margin-bottom:8px;font-size:12px;line-height:1.7;">
+                    <div style="font-size:13px;font-weight:600;color:#0f172a;">
+                        ${_escHtml(l.providerName || 'Candado')} <span style="font-weight:500;color:#64748b;">· ${_escHtml(l.operatorCode || '-')}</span>
+                    </div>
+                    <div style="color:#475569;">Serial: <b>${_escHtml(l.deviceSerial || 'sin serial')}</b></div>
+                    <div style="color:#475569;">ID viaje del candado: ${idViaje}</div>
+                    <div>${estado}${mensaje}</div>
+                    <div style="color:#475569;">Ultimo reporte: ${ultimo}</div>
+                    ${l.lastBattery != null ? `<div style="color:#475569;">Bateria: <b>${l.lastBattery}%</b></div>` : ''}
+                    ${l.lockUser ? `<div style="color:#94a3b8;">Usuario: ${_escHtml(l.lockUser)}</div>` : ''}
+                </div>`;
+            }).join('');
+        }
+
         function populateTripInfoPanel(trip) {
             _tipCurrentTrip = trip;
 
@@ -6796,6 +6871,9 @@
             document.getElementById('tipGpsView').style.display     = 'block';
             document.getElementById('tipGpsEditForm').style.display = 'none';
             document.getElementById('tipGpsEditBtn').textContent    = 'Editar';
+
+            // Candados satelitales
+            renderTipLockDevices(trip.lockDevices || []);
 
             // Origen y Destino
             const origin = trip.origin || {};
@@ -7095,7 +7173,7 @@
 
                 ['checkpoints','remittances','eventParameterizations','origin','destination',
                  'routeGeometry','routeGeometryFormat','mapRouteLineWeight','events','speedHistory',
-                 'timeDistribution','gpsDevices'].forEach(k => {
+                 'timeDistribution','gpsDevices','lockDevices'].forEach(k => {
                     if (det[k] !== undefined && det[k] !== null) trip[k] = det[k];
                 });
                 trip._detailLoaded = true;
@@ -9924,9 +10002,10 @@
                     locations.forEach((loc, idx) => {
                         // Saltar la última ubicación (ya está marcada como "Última Ubicación")
                         if (idx !== locations.length - 1 && (gpsMarkerDensity === 'all' || idx % step === 0)) {
+                            const esCandado = fuentePosicion(loc) === 'LOCK';
                             const marker = L.circleMarker([loc.Latitude, loc.Longitude], {
                                 radius: 6,
-                                fillColor: '#8b5cf6',
+                                fillColor: esCandado ? '#0f766e' : '#8b5cf6',
                                 color: '#fff',
                                 weight: 2,
                                 opacity: 1,
@@ -9948,9 +10027,9 @@
 
                             marker.bindPopup(`
                                 <div style="min-width: 220px;">
-                                    <h4 style="margin: 0 0 10px 0; color: #8b5cf6; font-size: 16px; display: flex; align-items: center; gap: 6px;">
-                                        <i data-lucide="map-pin" style="width: 18px; height: 18px;"></i>
-                                        Posición GPS #${idx + 1}
+                                    <h4 style="margin: 0 0 10px 0; color: ${esCandado ? '#0f766e' : '#8b5cf6'}; font-size: 16px; display: flex; align-items: center; gap: 6px;">
+                                        <i data-lucide="${esCandado ? 'lock' : 'map-pin'}" style="width: 18px; height: 18px;"></i>
+                                        ${esCandado ? 'Posición candado' : 'Posición GPS'} #${idx + 1}
                                     </h4>
                                     <div style="display: grid; gap: 6px; font-size: 13px;">
                                         <div style="display: flex; align-items: center; gap: 6px;">
@@ -9979,6 +10058,12 @@
                                             <div style="display: flex; align-items: center; gap: 6px;">
                                                 <i data-lucide="target" style="width: 14px; height: 14px; color: rgba(15, 23, 42, 0.5);"></i>
                                                 <strong>Precisión:</strong> ±${loc.Accuracy}m
+                                            </div>
+                                        ` : ''}
+                                        ${esCandado && loc.Battery != null ? `
+                                            <div style="display: flex; align-items: center; gap: 6px;">
+                                                <i data-lucide="battery" style="width: 14px; height: 14px; color: rgba(15, 23, 42, 0.5);"></i>
+                                                <strong>Batería candado:</strong> ${loc.Battery}%
                                             </div>
                                         ` : ''}
                                         ${loc.Provider ? `
@@ -10294,12 +10379,14 @@
                         <i data-lucide="map-pin" style="width:14px;height:14px;color:#10b981;flex-shrink:0;margin-top:2px;"></i>
                         <div style="font-size:12px;color:#475569;">${pos.location_name}</div>
                     </div>` : ''}
-                    ${pos.provider ? `
-                    <div style="display:flex; align-items:center; gap:6px; padding:6px 10px;
+                    <div style="display:flex; align-items:center; gap:6px; padding:6px 10px; flex-wrap:wrap;
                                 background:rgba(245,158,11,0.05); border-radius:8px;">
-                        <i data-lucide="satellite" style="width:13px;height:13px;color:#f59e0b;"></i>
-                        <span style="font-size:12px;color:#64748b;">${pos.provider}</span>
-                    </div>` : ''}
+                        <i data-lucide="${FUENTES_POSICION[fuentePosicion(pos)].icono}" style="width:13px;height:13px;color:#f59e0b;"></i>
+                        ${chipFuente(pos)}
+                        ${pos.provider ? `<span style="font-size:12px;color:#64748b;">${_escHtml(pos.provider)}</span>` : ''}
+                        ${fuentePosicion(pos) === 'LOCK' && pos.battery != null
+                            ? `<span style="font-size:12px;color:#64748b;">· bateria ${pos.battery}%</span>` : ''}
+                    </div>
                     <div style="display:flex; align-items:center; justify-content:center; gap:6px;
                                 padding:7px 10px; margin-top:4px;
                                 background:rgba(6,182,212,0.08); border:1px dashed rgba(6,182,212,0.35);
@@ -12291,7 +12378,10 @@
                 const data = await res.json();
                 if (!res.ok || !data.success) return;
 
-                const positions   = data.positions || [];
+                const todasLasPosiciones = data.positions || [];
+                const todasCrono  = ascending ? todasLasPosiciones : [...todasLasPosiciones].reverse();
+                renderResumenFuentes(todasCrono);
+                const positions   = filtrarPorFuente(todasLasPosiciones);
                 const mapPositions = ascending ? positions : [...positions].reverse();
 
                 // Actualizar contador de posiciones
@@ -12317,98 +12407,23 @@
 
                 if (positions.length === 0) return;
 
-                // Redibujar solo la capa GPS (no toca checkpoints ni ruta planificada)
-                if (gpsPositionsLayer) map.removeLayer(gpsPositionsLayer);
-                gpsPositionsLayer = L.layerGroup();
-                window._posMarkers = [];
-                window._lastPosTruckMarker = null;
-
-                const coords = [];
-                mapPositions.forEach((pos, idx) => {
-                    if (!pos.latitude || !pos.longitude) return;
-                    const speed  = pos.speed || 0;
-                    const color  = speed > 80 ? '#ef4444' : speed > 40 ? '#f59e0b' : '#10b981';
-                    const isLast = (idx === mapPositions.length - 1);
-                    let marker;
-                    if (isLast) {
-                        marker = L.marker([pos.latitude, pos.longitude], {
-                            icon: createLastLocationIcon(), zIndexOffset: 1000
-                        });
-                        marker.bindTooltip('Ultima ubicacion GPS', {
-                            permanent: true, direction: 'top',
-                            offset: [0, -28], className: 'last-location-tooltip'
-                        });
-                        window._lastPosTruckMarker = marker;
-                    } else {
-                        const radius = idx === 0 ? 10 : 6;
-                        marker = L.circleMarker([pos.latitude, pos.longitude], {
-                            radius, fillColor: color, color: 'white',
-                            weight: 2, opacity: 1, fillOpacity: 0.85
-                        });
-                    }
-                    marker.bindPopup(
-                        '<div style="font-family:Inter,sans-serif;min-width:210px;line-height:1.7;">' +
-                        '<strong style="color:#7c3aed">' + (isLast ? 'Ultima Posicion GPS' : 'Posicion #' + (idx + 1)) + '</strong><br>' +
-                        '<small><b>GPS COL:</b> ' + fmtTs(pos.timestamp_local, '') + '</small><br>' +
-                        '<small style="color:rgba(15,23,42,0.5)"><b>GPS UTC:</b> ' + fmtTs(pos.timestamp_utc, '') + '</small><br>' +
-                        (pos.registered_at ? '<small style="color:#059669"><b>BD:</b> ' + fmtTs(pos.registered_at, 'UTC') + '</small><br>' : '') +
-                        '<small><b>Velocidad:</b> ' + speed + ' km/h</small><br>' +
-                        '<small><b>Ubicacion:</b> ' + (pos.location_name || 'N/D') + '</small></div>'
-                    );
-                    gpsPositionsLayer.addLayer(marker);
-                    coords.push([pos.latitude, pos.longitude]);
-                    window._posMarkers[idx] = { marker, color, radius: isLast ? null : (idx === 0 ? 10 : 6), lat: pos.latitude, lng: pos.longitude };
-                });
-
-                if (coords.length > 1) {
-                    L.polyline(coords, { color: '#8b5cf6', weight: 2, opacity: 0.6, dashArray: '5,5' })
-                        .addTo(gpsPositionsLayer);
-                }
-                gpsPositionsLayer.addTo(map);
+                // Redibujar solo la capa de posiciones (no toca checkpoints ni ruta planificada)
+                dibujarCapaPosiciones(mapPositions);
 
                 // Actualizar panel de ultima ubicacion
                 updateLastLocationFromPOS(mapPositions[mapPositions.length - 1]);
 
                 // Actualizar tabla de posiciones
-                const tbody = document.getElementById('mapPosTableBody');
                 const tableContainer = document.getElementById('mapPosTableContainer');
-                if (tbody) {
-                    const posDesc = [...mapPositions].reverse();
-                    tbody.innerHTML = posDesc.map((p, i) => {
-                        const origIdx    = mapPositions.length - 1 - i;
-                        const speed      = p.speed || 0;
-                        const speedColor = speed > 80 ? '#dc2626' : speed > 40 ? '#d97706' : '#059669';
-                        const colTime    = fmtTs(p.timestamp_local || (p.sk ? p.sk.replace('POS#','') : ''), 'COL');
-                        const utcTime    = fmtTs(p.timestamp_utc, 'UTC');
-                        const regTime    = fmtTs(p.registered_at, 'UTC');
-                        const hasCoords  = p.latitude && p.longitude;
-                        return '<tr id="posRow_' + origIdx + '"' +
-                            (hasCoords ? ' onclick="focusPosMarker(' + origIdx + ')"' : '') +
-                            ' style="border-bottom:1px solid rgba(139,92,246,0.08);' +
-                            (i % 2 === 0 ? 'background:rgba(139,92,246,0.03);' : '') +
-                            (hasCoords ? 'cursor:pointer;' : '') + 'transition:background 0.2s;"' +
-                            ' onmouseover="if(' + hasCoords + ') this.style.background=\'rgba(139,92,246,0.12)\'"' +
-                            ' onmouseout="if(!this.classList.contains(\'pos-selected\')) this.style.background=\'' + (i % 2 === 0 ? 'rgba(139,92,246,0.03)' : '') + '\'">' +
-                            '<td style="padding:8px 12px;color:rgba(15,23,42,0.5);white-space:nowrap">' +
-                            (hasCoords ? '<span style="color:#7c3aed;font-size:11px;">&#x25CF;</span> ' : '') + (posDesc.length - i) + '</td>' +
-                            '<td style="padding:8px 12px;font-size:12px;font-weight:500;white-space:nowrap">' + colTime + '</td>' +
-                            '<td style="padding:8px 12px;font-size:12px;color:rgba(15,23,42,0.5);white-space:nowrap">' + utcTime + '</td>' +
-                            '<td style="padding:8px 12px;font-size:12px;color:#059669;font-weight:500;white-space:nowrap">' + regTime + '</td>' +
-                            '<td style="padding:8px 12px;text-align:right;font-weight:600;color:' + speedColor + '">' + speed + '</td>' +
-                            '<td style="padding:8px 12px;text-align:right;font-size:12px">' + (p.latitude ? p.latitude.toFixed(6) : '-') + '</td>' +
-                            '<td style="padding:8px 12px;text-align:right;font-size:12px">' + (p.longitude ? p.longitude.toFixed(6) : '-') + '</td>' +
-                            '<td style="padding:8px 12px;font-size:12px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + (p.location_name || '') + '">' + (p.location_name || '-') + '</td>' +
-                            '<td style="padding:8px 12px;font-size:12px">' + (p.provider || '-') + '</td></tr>';
-                    }).join('');
-                    if (tableContainer) tableContainer.style.display = 'block';
-                }
+                renderTablaPosiciones(mapPositions);
+                if (tableContainer) tableContainer.style.display = 'block';
 
                 // Actualizar barra de estado
                 const statusEl2 = document.getElementById('mapPosStatus');
                 if (statusEl2 && statusEl2.style.display !== 'none') {
                     const modoLabel = ascending ? 'desde el inicio' : 'mas recientes';
-                    statusEl2.textContent = 'Placa: ' + data.plate + ' | Manifiesto: ' + data.manifest +
-                        ' | ' + positions.length + ' posiciones (' + modoLabel + ')' +
+                    statusEl2.textContent = 'Placa: ' + (data.plate || currentMapTripPlate || '-') + ' | Manifiesto: ' + (data.manifest || currentMapTripManifest || '-') +
+                        ' | ' + positions.length + ' posiciones (' + modoLabel + ')' + textoConteoFuentes(positions) +
                         ' — ' + new Date().toLocaleTimeString('es-CO');
                 }
 
@@ -17033,6 +17048,203 @@
             }
         }
 
+        // ==================== FUENTE DE LAS POSICIONES (GPS / CANDADO SATELITAL) ====================
+        // Un viaje puede tener el GPS del vehiculo y un candado satelital (lockDevices).
+        // La API marca cada posicion con position_source = GPS | LOCK; las posiciones
+        // escritas antes de ese campo se reconocen por el proveedor.
+        const FUENTES_POSICION = {
+            GPS:  { etiqueta: 'GPS vehiculo',      borde: '#ffffff', grosor: 2, linea: '#8b5cf6', guion: '5,5',
+                    chipFondo: 'rgba(139,92,246,0.12)', chipTexto: '#7c3aed', icono: 'satellite' },
+            LOCK: { etiqueta: 'Candado satelital', borde: '#0f766e', grosor: 3, linea: '#0f766e', guion: '2,6',
+                    chipFondo: 'rgba(15,118,110,0.12)', chipTexto: '#0f766e', icono: 'lock' },
+        };
+        const PROVEEDORES_CANDADO = ['SATLOCK'];
+
+        function fuentePosicion(p) {
+            const f = String((p && (p.position_source || p.positionSource || p.PositionSource)) || '').toUpperCase();
+            if (f === 'LOCK' || f === 'GPS') return f;
+            const prov = String((p && (p.provider || p.Provider)) || '').toUpperCase();
+            return PROVEEDORES_CANDADO.includes(prov) ? 'LOCK' : 'GPS';
+        }
+
+        function filtrarPorFuente(posiciones) {
+            const sel = document.getElementById('mapPosSource');
+            const valor = sel ? sel.value : 'ALL';
+            return valor === 'ALL' ? posiciones : posiciones.filter(p => fuentePosicion(p) === valor);
+        }
+
+        function _escHtml(texto) {
+            return String(texto == null ? '' : texto)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function chipFuente(p) {
+            const f = FUENTES_POSICION[fuentePosicion(p)];
+            return `<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;
+                                 background:${f.chipFondo};color:${f.chipTexto};white-space:nowrap;">${f.etiqueta}</span>`;
+        }
+
+        function popupPosicion(pos, idx, isLast) {
+            const fuente = fuentePosicion(pos);
+            const f      = FUENTES_POSICION[fuente];
+            const speed  = pos.speed || 0;
+            const titulo = (isLast ? 'Ultima posicion' : 'Posicion #' + (idx + 1)) + ' · ' + f.etiqueta;
+            const eventos = Array.isArray(pos.source_events) && pos.source_events.length
+                ? pos.source_events.map(_escHtml).join(', ') : '';
+            return `<div style="font-family:Inter,sans-serif;min-width:220px;line-height:1.7;">
+                <strong style="color:${fuente === 'LOCK' ? f.chipTexto : '#7c3aed'}">${titulo}</strong><br>
+                <small><b>Hora COL:</b> ${fmtTs(pos.timestamp_local, '')}</small><br>
+                <small style="color:rgba(15,23,42,0.5)"><b>Hora UTC:</b> ${fmtTs(pos.timestamp_utc, '')}</small><br>
+                ${pos.registered_at ? `<small style="color:#059669"><b>BD:</b> ${fmtTs(pos.registered_at, 'UTC')}</small><br>` : ''}
+                <small><b>Velocidad:</b> ${speed} km/h</small><br>
+                ${pos.heading != null ? `<small><b>Rumbo:</b> ${pos.heading}°</small><br>` : ''}
+                <small><b>Ubicacion:</b> ${_escHtml(pos.location_name || 'N/D')}</small><br>
+                <small><b>Proveedor:</b> ${_escHtml(pos.provider || '')}</small>
+                ${fuente === 'LOCK' ? `
+                    ${pos.battery != null ? `<br><small><b>Bateria candado:</b> ${pos.battery}%</small>` : ''}
+                    ${eventos ? `<br><small><b>Eventos:</b> ${eventos}</small>` : ''}
+                    ${pos.source_trip_id ? `<br><small><b>ID viaje candado:</b> ${_escHtml(pos.source_trip_id)}</small>` : ''}
+                    ${pos.source_unit ? `<br><small><b>Serial:</b> ${_escHtml(pos.source_unit)}</small>` : ''}` : ''}
+            </div>`;
+        }
+
+        // Dibuja las posiciones (orden cronologico) en gpsPositionsLayer: un marcador por
+        // posicion con el borde de su fuente y una linea de recorrido por fuente, para que
+        // la traza del GPS y la del candado no se mezclen en una sola linea en zigzag.
+        function dibujarCapaPosiciones(mapPositions) {
+            if (gpsPositionsLayer) map.removeLayer(gpsPositionsLayer);
+            gpsPositionsLayer = L.layerGroup();
+            window._posMarkers = [];
+            window._lastPosTruckMarker = null;
+
+            const coords = [];
+            const lineas = { GPS: [], LOCK: [] };
+            mapPositions.forEach((pos, idx) => {
+                if (!pos.latitude || !pos.longitude) return;
+                const fuente = fuentePosicion(pos);
+                const f      = FUENTES_POSICION[fuente];
+                const speed  = pos.speed || 0;
+                const color  = speed > 80 ? '#ef4444' : speed > 40 ? '#f59e0b' : '#10b981';
+                const isLast = (idx === mapPositions.length - 1);
+                let marker;
+                if (isLast) {
+                    marker = L.marker([pos.latitude, pos.longitude], {
+                        icon: createLastLocationIcon(), zIndexOffset: 1000
+                    });
+                    marker.bindTooltip('Ultima ubicacion · ' + f.etiqueta, {
+                        permanent: true, direction: 'top', offset: [0, -28], className: 'last-location-tooltip'
+                    });
+                    window._lastPosTruckMarker = marker;
+                } else {
+                    const radius = idx === 0 ? 10 : 6;
+                    marker = L.circleMarker([pos.latitude, pos.longitude], {
+                        radius, fillColor: color, color: f.borde, weight: f.grosor, opacity: 1, fillOpacity: 0.85
+                    });
+                }
+                marker.bindPopup(popupPosicion(pos, idx, isLast));
+                gpsPositionsLayer.addLayer(marker);
+                coords.push([pos.latitude, pos.longitude]);
+                lineas[fuente].push([pos.latitude, pos.longitude]);
+                window._posMarkers[idx] = {
+                    marker, color, weight: f.grosor,
+                    radius: isLast ? null : (idx === 0 ? 10 : 6), lat: pos.latitude, lng: pos.longitude
+                };
+            });
+
+            Object.keys(lineas).forEach(fuente => {
+                if (lineas[fuente].length > 1) {
+                    const f = FUENTES_POSICION[fuente];
+                    L.polyline(lineas[fuente], { color: f.linea, weight: 2, opacity: 0.6, dashArray: f.guion })
+                        .bindTooltip('Recorrido · ' + f.etiqueta, { sticky: true })
+                        .addTo(gpsPositionsLayer);
+                }
+            });
+            gpsPositionsLayer.addTo(map);
+            return coords;
+        }
+
+        // Tabla de posiciones: la mas reciente arriba. mapPositions viene en orden cronologico.
+        function renderTablaPosiciones(mapPositions) {
+            const tbody = document.getElementById('mapPosTableBody');
+            if (!tbody) return;
+            const posDesc = [...mapPositions].reverse();
+            tbody.innerHTML = posDesc.map((p, i) => {
+                const origIdx    = mapPositions.length - 1 - i;
+                const speed      = p.speed || 0;
+                const speedColor = speed > 80 ? '#dc2626' : speed > 40 ? '#d97706' : '#059669';
+                const colTime    = fmtTs(p.timestamp_local || (p.sk ? p.sk.replace('POS#','') : ''), 'COL');
+                const utcTime    = fmtTs(p.timestamp_utc, 'UTC');
+                const regTime    = fmtTs(p.registered_at, 'UTC');
+                const hasCoords  = p.latitude && p.longitude;
+                const fondo      = i % 2 === 0 ? 'rgba(139,92,246,0.03)' : '';
+                const punto      = fuentePosicion(p) === 'LOCK' ? '#0f766e' : '#7c3aed';
+                return `<tr id="posRow_${origIdx}"
+                            onclick="${hasCoords ? `focusPosMarker(${origIdx})` : ''}"
+                            style="border-bottom:1px solid rgba(139,92,246,0.08);${fondo ? 'background:' + fondo + ';' : ''}
+                                   ${hasCoords ? 'cursor:pointer;' : ''}transition:background 0.2s;"
+                            onmouseover="if(${hasCoords}) this.style.background='rgba(139,92,246,0.12)'"
+                            onmouseout="if(!this.classList.contains('pos-selected')) this.style.background='${fondo}'">
+                    <td style="padding:8px 12px;color:rgba(15,23,42,0.5);white-space:nowrap">
+                        ${hasCoords ? `<span style="color:${punto};font-size:11px;">&#x25CF;</span> ` : ''}${posDesc.length - i}
+                    </td>
+                    <td style="padding:8px 12px;font-size:12px;font-weight:500;white-space:nowrap">${colTime}</td>
+                    <td style="padding:8px 12px;font-size:12px;color:rgba(15,23,42,0.5);white-space:nowrap">${utcTime}</td>
+                    <td style="padding:8px 12px;font-size:12px;color:#059669;font-weight:500;white-space:nowrap">${regTime}</td>
+                    <td style="padding:8px 12px;text-align:right;font-weight:600;color:${speedColor}">${speed}</td>
+                    <td style="padding:8px 12px;text-align:right;font-size:12px">${p.latitude ? p.latitude.toFixed(6) : '-'}</td>
+                    <td style="padding:8px 12px;text-align:right;font-size:12px">${p.longitude ? p.longitude.toFixed(6) : '-'}</td>
+                    <td style="padding:8px 12px;font-size:12px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_escHtml(p.location_name || '')}">${_escHtml(p.location_name || '-')}</td>
+                    <td style="padding:8px 12px;font-size:12px">${chipFuente(p)}</td>
+                    <td style="padding:8px 12px;font-size:12px">${_escHtml(p.provider || '-')}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        // Resumen por fuente sobre TODAS las posiciones consultadas (sin el filtro de fuente):
+        // cuantas trajo cada una, la ultima hora y velocidad, y la velocidad maxima y media.
+        // Solo se muestra si el viaje tiene posiciones de candado; con solo GPS no aporta.
+        function renderResumenFuentes(todas) {
+            const cont = document.getElementById('mapPosSourceSummary');
+            if (!cont) return;
+            const grupos = { GPS: [], LOCK: [] };
+            (todas || []).forEach(p => grupos[fuentePosicion(p)].push(p));
+            if (!grupos.LOCK.length) { cont.style.display = 'none'; cont.innerHTML = ''; return; }
+
+            const tarjeta = (fuente) => {
+                const f = FUENTES_POSICION[fuente];
+                const lista = grupos[fuente];
+                if (!lista.length) {
+                    return `<div style="flex:1;min-width:220px;padding:12px 14px;border-radius:10px;border:1px dashed ${f.linea}55;background:${f.chipFondo};">
+                        <div style="font-size:12px;font-weight:700;color:${f.chipTexto};">${f.etiqueta}</div>
+                        <div style="font-size:12px;color:#64748b;margin-top:4px;">Sin posiciones en esta consulta</div></div>`;
+                }
+                const ultima = lista[lista.length - 1];
+                const vels   = lista.map(p => parseFloat(p.speed) || 0);
+                const max    = Math.max(...vels);
+                const prom   = vels.reduce((a, b) => a + b, 0) / vels.length;
+                const bat    = fuente === 'LOCK' && ultima.battery != null ? ` · bateria ${ultima.battery}%` : '';
+                return `<div style="flex:1;min-width:220px;padding:12px 14px;border-radius:10px;border:1px solid ${f.linea}44;background:${f.chipFondo};">
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                        <span style="font-size:12px;font-weight:700;color:${f.chipTexto};">${f.etiqueta}</span>
+                        <span style="font-size:11px;color:#64748b;">${lista.length} posiciones</span>
+                    </div>
+                    <div style="font-size:12px;color:#0f172a;margin-top:6px;">
+                        Ultima: <b>${fmtTs(ultima.timestamp_local, '')}</b> · <b>${ultima.speed || 0} km/h</b>${bat}
+                    </div>
+                    <div style="font-size:12px;color:#475569;margin-top:2px;">
+                        Velocidad maxima <b>${Math.round(max)} km/h</b> · media <b>${Math.round(prom)} km/h</b>
+                    </div>
+                </div>`;
+            };
+            cont.innerHTML = tarjeta('GPS') + tarjeta('LOCK');
+            cont.style.display = 'flex';
+        }
+
+        function textoConteoFuentes(posiciones) {
+            const lock = posiciones.filter(p => fuentePosicion(p) === 'LOCK').length;
+            return lock ? ` (GPS ${posiciones.length - lock} · candado ${lock})` : '';
+        }
+
         async function loadMapPositions() {
             const numericId = currentMapTripNumericId;
             if (!numericId) {
@@ -17089,9 +17301,14 @@
                     return;
                 }
 
-                const positions = data.positions || [];
+                const todasLasPosiciones = data.positions || [];
+                const todasCrono = ascending ? todasLasPosiciones : [...todasLasPosiciones].reverse();
+                renderResumenFuentes(todasCrono);
+                // Filtro de fuente (GPS del vehiculo / candado satelital) sobre lo consultado
+                const positions = filtrarPorFuente(todasLasPosiciones);
                 const modoLabel = ascending ? 'desde el inicio' : 'mas recientes';
-                statusEl.textContent = `Placa: ${data.plate} | Manifiesto: ${data.manifest} | ${positions.length} posiciones (${modoLabel})`;
+                statusEl.textContent = `Placa: ${data.plate || plate || '-'} | Manifiesto: ${data.manifest || manifest || '-'} | ${positions.length} posiciones (${modoLabel})` +
+                    textoConteoFuentes(positions);
                 statusEl.style.background = 'rgba(139,92,246,0.08)';
                 statusEl.style.color = '#7c3aed';
                 statusEl.style.borderColor = 'rgba(139,92,246,0.2)';
@@ -17147,7 +17364,7 @@
                     }
                     document.getElementById('lastLocationInfo').innerHTML =
                         '<p style="color:rgba(15,23,42,0.5);text-align:center;padding:20px;font-size:13px;">Sin posiciones GPS registradas para este viaje</p>';
-                    tbody.innerHTML = '<tr><td colspan="9" style="padding:20px;text-align:center;color:rgba(15,23,42,0.4);">Sin posiciones GPS registradas</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="10" style="padding:20px;text-align:center;color:rgba(15,23,42,0.4);">' + (todasLasPosiciones.length ? 'Sin posiciones de la fuente seleccionada' : 'Sin posiciones GPS registradas') + '</td></tr>';
                     tableContainer.style.display = 'block';
                     return;
                 }
@@ -17159,61 +17376,8 @@
                 // Guardar globalmente para el historico completo
                 window._historyPositions = mapPositions;
 
-                const coords = [];
-                window._posMarkers = [];
-
-                // 1. Dibujar posiciones GPS en la capa dedicada (usando mapPositions = orden cronologico)
-                window._lastPosTruckMarker = null;
-                mapPositions.forEach((pos, idx) => {
-                    if (!pos.latitude || !pos.longitude) return;
-                    const speed = pos.speed || 0;
-                    const color = speed > 80 ? '#ef4444' : speed > 40 ? '#f59e0b' : '#10b981';
-                    const isLast = (idx === mapPositions.length - 1);
-
-                    let marker;
-                    if (isLast) {
-                        // Ultima posicion: marcador de camion con icono destacado
-                        marker = L.marker([pos.latitude, pos.longitude], {
-                            icon: createLastLocationIcon(),
-                            zIndexOffset: 1000
-                        });
-                        marker.bindTooltip('Ultima ubicacion GPS', {
-                            permanent: true,
-                            direction: 'top',
-                            offset: [0, -28],
-                            className: 'last-location-tooltip'
-                        });
-                        window._lastPosTruckMarker = marker;
-                    } else {
-                        const radius = idx === 0 ? 10 : 6;
-                        marker = L.circleMarker([pos.latitude, pos.longitude], {
-                            radius, fillColor: color, color: 'white', weight: 2,
-                            opacity: 1, fillOpacity: 0.85
-                        });
-                    }
-
-                    marker.bindPopup(
-                        `<div style="font-family:Inter,sans-serif;min-width:210px;line-height:1.7;">
-                            <strong style="color:#7c3aed">${isLast ? 'Ultima Posicion GPS' : 'Posicion #' + (idx + 1)}</strong><br>
-                            <small><b>GPS COL:</b> ${fmtTs(pos.timestamp_local, '')}</small><br>
-                            <small style="color:rgba(15,23,42,0.5)"><b>GPS UTC:</b> ${fmtTs(pos.timestamp_utc, '')}</small><br>
-                            ${pos.registered_at ? `<small style="color:#059669"><b>BD:</b> ${fmtTs(pos.registered_at, 'UTC')}</small><br>` : ''}
-                            <small><b>Velocidad:</b> ${speed} km/h</small><br>
-                            <small><b>Ubicacion:</b> ${pos.location_name || 'N/D'}</small><br>
-                            <small><b>Proveedor:</b> ${pos.provider || ''}</small>
-                        </div>`
-                    );
-                    gpsPositionsLayer.addLayer(marker);
-                    coords.push([pos.latitude, pos.longitude]);
-                    // Guardar referencia para navegacion desde la tabla
-                    window._posMarkers[idx] = { marker, color, radius: isLast ? null : (idx === 0 ? 10 : 6), lat: pos.latitude, lng: pos.longitude };
-                });
-
-                if (coords.length > 1) {
-                    L.polyline(coords, { color: '#8b5cf6', weight: 2, opacity: 0.6, dashArray: '5,5' })
-                        .addTo(gpsPositionsLayer);
-                }
-                gpsPositionsLayer.addTo(map);
+                // 1. Posiciones en la capa dedicada (orden cronologico), una traza por fuente
+                const coords = dibujarCapaPosiciones(mapPositions);
 
                 // 2. fitBounds: cubrir GPS + checkpoints para que todo quede visible
                 const allBoundsCoords = [...coords];
@@ -17227,37 +17391,7 @@
                 // Tabla: siempre muestra las mas recientes primero.
                 // mapPositions esta en orden cronologico ascendente (para el mapa).
                 // La tabla invierte mapPositions para mostrar la mas reciente arriba.
-                const posDesc = [...mapPositions].reverse();
-                tbody.innerHTML = posDesc.map((p, i) => {
-                    // origIdx: indice en mapPositions (orden asc). Se usa para focusPosMarker.
-                    const origIdx = mapPositions.length - 1 - i;
-                    const speed = p.speed || 0;
-                    const speedColor = speed > 80 ? '#dc2626' : speed > 40 ? '#d97706' : '#059669';
-                    const colTime  = fmtTs(p.timestamp_local || (p.sk ? p.sk.replace('POS#','') : ''), 'COL');
-                    const utcTime  = fmtTs(p.timestamp_utc, 'UTC');
-                    const regTime  = fmtTs(p.registered_at, 'UTC');
-                    const hasCoords = p.latitude && p.longitude;
-                    return `<tr id="posRow_${origIdx}"
-                                onclick="${hasCoords ? `focusPosMarker(${origIdx})` : ''}"
-                                style="border-bottom:1px solid rgba(139,92,246,0.08);
-                                       ${i % 2 === 0 ? 'background:rgba(139,92,246,0.03);' : ''}
-                                       ${hasCoords ? 'cursor:pointer;' : ''}
-                                       transition:background 0.2s;"
-                                onmouseover="if(${hasCoords}) this.style.background='rgba(139,92,246,0.12)'"
-                                onmouseout="if(!this.classList.contains('pos-selected')) this.style.background='${i % 2 === 0 ? 'rgba(139,92,246,0.03)' : ''}'">
-                        <td style="padding:8px 12px;color:rgba(15,23,42,0.5);white-space:nowrap">
-                            ${hasCoords ? '<span style="color:#7c3aed;font-size:11px;">&#x25CF;</span> ' : ''}${posDesc.length - i}
-                        </td>
-                        <td style="padding:8px 12px;font-size:12px;font-weight:500;white-space:nowrap">${colTime}</td>
-                        <td style="padding:8px 12px;font-size:12px;color:rgba(15,23,42,0.5);white-space:nowrap">${utcTime}</td>
-                        <td style="padding:8px 12px;font-size:12px;color:#059669;font-weight:500;white-space:nowrap">${regTime}</td>
-                        <td style="padding:8px 12px;text-align:right;font-weight:600;color:${speedColor}">${speed}</td>
-                        <td style="padding:8px 12px;text-align:right;font-size:12px">${p.latitude ? p.latitude.toFixed(6) : '-'}</td>
-                        <td style="padding:8px 12px;text-align:right;font-size:12px">${p.longitude ? p.longitude.toFixed(6) : '-'}</td>
-                        <td style="padding:8px 12px;font-size:12px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.location_name || ''}">${p.location_name || '-'}</td>
-                        <td style="padding:8px 12px;font-size:12px">${p.provider || '-'}</td>
-                    </tr>`;
-                }).join('');
+                renderTablaPosiciones(mapPositions);
                 tableContainer.style.display = 'block';
 
                 // Ultima ubicacion: siempre el ultimo elemento de mapPositions (el mas reciente en tiempo)
@@ -17990,7 +18124,7 @@
                 // 3. Resaltar el marker temporalmente (naranja brillante)
                 marker.setStyle({ fillColor: '#f59e0b', radius: radius + 6, weight: 3 });
                 setTimeout(() => {
-                    marker.setStyle({ fillColor: color, radius: radius, weight: 2 });
+                    marker.setStyle({ fillColor: color, radius: radius, weight: entry.weight || 2 });
                 }, 2500);
             }, 350);
 
