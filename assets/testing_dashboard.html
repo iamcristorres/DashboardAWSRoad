@@ -2927,6 +2927,9 @@
             <button class="tab-btn" onclick="switchTab('search')">
                 <i data-lucide="search"></i> Buscar Viaje
             </button>
+            <button class="tab-btn" onclick="switchTab('webhook')">
+                <i data-lucide="send"></i> Envíos AL360
+            </button>
         </div>
 
         <!-- Tab 1: Dashboard Principal -->
@@ -4380,6 +4383,83 @@
         </div>
 
         <!-- Tab 6: Buscar Viaje -->
+        <!-- Tab: Traza de envios al webhook de AVL360 (GET /webhook-trace) -->
+        <div id="tab-webhook" class="tab-content">
+            <style>
+                #tab-webhook .wt-sub { color: rgba(15,23,42,0.6); font-size: 13px; margin: -10px 0 18px; }
+                #tab-webhook .wt-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 18px; }
+                #tab-webhook .wt-controls label { display: block; font-size: 12px; font-weight: 600; color: rgba(15,23,42,0.7); margin-bottom: 4px; }
+                #tab-webhook .wt-controls input, #tab-webhook .wt-controls select {
+                    padding: 9px 12px; border: 1px solid rgba(6,182,212,0.3); border-radius: 10px; background: #fff; font-size: 14px; min-width: 150px; }
+                #tab-webhook .wt-btn { padding: 10px 16px; border: none; border-radius: 10px; cursor: pointer; font-weight: 600; font-size: 14px;
+                    display: inline-flex; align-items: center; gap: 6px; background: linear-gradient(135deg,#06b6d4,#0891b2); color: #fff; }
+                #tab-webhook .wt-btn.sec { background: #fff; color: #0891b2; border: 1px solid rgba(6,182,212,0.4); }
+                #tab-webhook .wt-btn:disabled { opacity: .5; cursor: default; }
+                #tab-webhook .wt-btn i { width: 16px; height: 16px; }
+                #tab-webhook .wt-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
+                #tab-webhook .wt-card { background: #fff; border-radius: 14px; padding: 14px 16px; border: 1px solid rgba(6,182,212,0.15); cursor: pointer; }
+                #tab-webhook .wt-card.sel { outline: 2px solid #06b6d4; }
+                #tab-webhook .wt-card .n { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+                #tab-webhook .wt-card .t { font-size: 12px; color: rgba(15,23,42,0.6); font-weight: 600; }
+                #tab-webhook .wt-box { background: #fff; border-radius: 14px; border: 1px solid rgba(6,182,212,0.15); overflow-x: auto; margin-bottom: 18px; }
+                #tab-webhook table { width: 100%; border-collapse: collapse; font-size: 13px; }
+                #tab-webhook th { text-align: left; padding: 10px 12px; background: rgba(6,182,212,0.08); color: rgba(15,23,42,0.75); font-weight: 600; white-space: nowrap; }
+                #tab-webhook td { padding: 9px 12px; border-top: 1px solid rgba(15,23,42,0.06); vertical-align: top; }
+                #tab-webhook td.num, #tab-webhook th.num { text-align: right; font-variant-numeric: tabular-nums; }
+                #tab-webhook tr.click { cursor: pointer; }
+                #tab-webhook tr.click:hover td { background: rgba(6,182,212,0.05); }
+                #tab-webhook .wt-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+                #tab-webhook .st-enviado { background: #dcfce7; color: #166534; }
+                #tab-webhook .st-fallido { background: #fee2e2; color: #991b1b; }
+                #tab-webhook .st-no_enviado { background: #f1f5f9; color: #475569; }
+                #tab-webhook .st-sin_traza { background: #fef3c7; color: #92400e; }
+                #tab-webhook .wt-reason { color: rgba(15,23,42,0.6); max-width: 320px; }
+                #tab-webhook .wt-pager { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+                #tab-webhook .wt-msg { padding: 24px; text-align: center; color: rgba(15,23,42,0.6); }
+                #wtModal { display: none; position: fixed; inset: 0; background: rgba(15,23,42,0.45); z-index: 10000; align-items: center; justify-content: center; padding: 16px; }
+                #wtModal.open { display: flex; }
+                #wtModal .wt-modal { background: #fff; border-radius: 16px; width: min(900px, 100%); max-height: 90vh; overflow: auto; padding: 22px 24px; }
+                #wtModal dl { display: grid; grid-template-columns: 170px 1fr; gap: 6px 14px; font-size: 13px; margin: 12px 0 16px; }
+                #wtModal dt { color: rgba(15,23,42,0.6); font-weight: 600; }
+                #wtModal dd { margin: 0; word-break: break-all; }
+                #wtModal pre { background: #0f172a; color: #e2e8f0; padding: 14px; border-radius: 10px; font-size: 12px; overflow: auto; max-height: 45vh; white-space: pre-wrap; word-break: break-word; }
+            </style>
+            <h2 class="section-title">
+                <i data-lucide="send" style="display: inline-block; width: 28px; height: 28px;"></i>
+                Envíos a Avansat Logística 360
+            </h2>
+            <p class="wt-sub">Todo lo que las lambdas de alerta detectaron en el día y lo que se envió (o no) al webhook de AVL360, con su resultado.</p>
+
+            <div class="wt-controls">
+                <div><label for="wtFecha">Fecha</label><input type="date" id="wtFecha"></div>
+                <div><label for="wtLambda">Lambda</label>
+                    <select id="wtLambda"><option value="">Todas</option></select></div>
+                <div><label for="wtEstado">Estado</label>
+                    <select id="wtEstado">
+                        <option value="">Todos</option>
+                        <option value="enviado">Enviado</option>
+                        <option value="fallido">Fallido</option>
+                        <option value="no_enviado">No enviado</option>
+                        <option value="sin_traza">Sin traza</option>
+                    </select></div>
+                <div style="flex:1; min-width:200px;"><label for="wtTexto">Buscar</label>
+                    <input type="text" id="wtTexto" placeholder="Manifiesto, placa, NIT, freight, alertId…" style="width:100%"></div>
+                <button class="wt-btn" id="wtConsultar" onclick="wtCargar(0)"><i data-lucide="search"></i> Consultar</button>
+                <button class="wt-btn sec" onclick="wtCargar(0, true)" title="Relee el día ignorando la caché de la API"><i data-lucide="refresh-cw"></i> Actualizar</button>
+            </div>
+
+            <div class="wt-cards" id="wtCards"></div>
+            <div class="wt-box" id="wtPorLambda"></div>
+            <div class="wt-box" id="wtTabla"><div class="wt-msg">Elige la fecha y pulsa Consultar.</div></div>
+            <div class="wt-pager">
+                <span id="wtInfo" style="font-size:13px; color:rgba(15,23,42,0.6);"></span>
+                <div style="display:flex; gap:8px;">
+                    <button class="wt-btn sec" id="wtPrev" onclick="wtPagina(-1)" disabled>Anterior</button>
+                    <button class="wt-btn sec" id="wtNext" onclick="wtPagina(1)" disabled>Siguiente</button>
+                </div>
+            </div>
+        </div>
+
         <div id="tab-search" class="tab-content">
             <h2 class="section-title">
                 <i data-lucide="search" style="display: inline-block; width: 28px; height: 28px;"></i>
@@ -19306,6 +19386,200 @@
             }
         };
 
+    </script>
+
+    <!-- Modal de detalle de un envio a AVL360 -->
+    <div id="wtModal" onclick="if (event.target === this) wtCerrar()">
+        <div class="wt-modal" role="dialog" aria-modal="true" aria-labelledby="wtModalTitulo">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+                <h3 id="wtModalTitulo" style="margin:0; font-size:18px;">Detalle del envío</h3>
+                <button class="wt-btn sec" onclick="wtCerrar()" style="padding:6px 12px;">Cerrar</button>
+            </div>
+            <div id="wtModalCuerpo"></div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== ENVIOS A AVL360 (GET /webhook-trace) ====================
+        const WT_ESTADOS = { enviado: 'Enviado', fallido: 'Fallido', no_enviado: 'No enviado', sin_traza: 'Sin traza' };
+        const wtEstado = { offset: 0, limit: 200, total: 0, cargado: false, ultimo: null };
+
+        function wtEsc(v) {
+            return String(v === null || v === undefined ? '' : v)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+        function wtHora(iso) {
+            if (!iso) return '';
+            const m = String(iso).match(/T(\d{2}:\d{2}:\d{2})/);
+            return m ? m[1] : String(iso);
+        }
+        function wtNum(n) { return (n || 0).toLocaleString('es-CO'); }
+        function wtHoyColombia() {
+            const d = new Date(Date.now() - 5 * 3600 * 1000);
+            return d.toISOString().slice(0, 10);
+        }
+        function wtBadge(st) { return `<span class="wt-badge st-${wtEsc(st)}">${wtEsc(WT_ESTADOS[st] || st)}</span>`; }
+
+        async function wtCargar(offset, refrescar) {
+            const fecha = document.getElementById('wtFecha').value || wtHoyColombia();
+            const params = new URLSearchParams({ date: fecha, offset: String(offset || 0), limit: String(wtEstado.limit) });
+            const lam = document.getElementById('wtLambda').value;
+            const est = document.getElementById('wtEstado').value;
+            const txt = document.getElementById('wtTexto').value.trim();
+            if (lam) params.set('lambda', lam);
+            if (est) params.set('status', est);
+            if (txt) params.set('q', txt);
+            if (refrescar) params.set('refresh', 'true');
+
+            const btn = document.getElementById('wtConsultar');
+            btn.disabled = true;
+            document.getElementById('wtTabla').innerHTML = '<div class="wt-msg">Consultando… la primera lectura del día tarda unos segundos.</div>';
+            try {
+                const resp = await fetch(`${API_BASE_URL}/webhook-trace?${params.toString()}`, { headers: { 'Accept': 'application/json' } });
+                const data = await resp.json();
+                if (!resp.ok) {
+                    const det = data && data.detail;
+                    throw new Error((det && det.message) || `HTTP ${resp.status}`);
+                }
+                wtEstado.offset = data.meta.offset;
+                wtEstado.total = data.meta.total_filtered;
+                wtEstado.ultimo = data;
+                wtPintar(data);
+            } catch (e) {
+                document.getElementById('wtTabla').innerHTML =
+                    `<div class="wt-msg" style="color:#991b1b;">No se pudo consultar la traza: ${wtEsc(e.message)}</div>`;
+                document.getElementById('wtInfo').textContent = '';
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function wtFiltrar(campo, valor) {
+            document.getElementById(campo).value = valor;
+            wtCargar(0);
+        }
+
+        function wtPintar(data) {
+            const s = data.summary;
+            const est = document.getElementById('wtEstado').value;
+            const tarjetas = [['', 'Total detectado', s.total], ['enviado', 'Enviados', s.enviado], ['fallido', 'Fallidos', s.fallido],
+                              ['no_enviado', 'No enviados', s.no_enviado], ['sin_traza', 'Sin traza', s.sin_traza]];
+            document.getElementById('wtCards').innerHTML = tarjetas.map(([k, t, n]) => `
+                <div class="wt-card ${est === k ? 'sel' : ''}" onclick="wtFiltrar('wtEstado','${k}')" title="Filtrar por este estado">
+                    <div class="t">${t}</div><div class="n">${wtNum(n)}</div>
+                </div>`).join('');
+
+            // Selector de lambdas a partir del resumen del dia
+            const sel = document.getElementById('wtLambda');
+            const actual = sel.value;
+            sel.innerHTML = '<option value="">Todas</option>' + s.by_lambda.map(l =>
+                `<option value="${wtEsc(l.lambda)}" ${l.lambda === actual ? 'selected' : ''}>${wtEsc(l.lambda_name)}</option>`).join('');
+
+            const codigos = Object.entries(s.by_http_status || {}).map(([c, n]) =>
+                `${c === 'sin_codigo' ? 'OK sin código' : 'HTTP ' + wtEsc(c)}: ${wtNum(n)}`).join(' · ');
+            document.getElementById('wtPorLambda').innerHTML = `
+                <table>
+                    <thead><tr><th>Lambda</th><th class="num">Detectados</th><th class="num">Enviados</th><th class="num">Fallidos</th>
+                        <th class="num">No enviados</th><th class="num">Sin traza</th></tr></thead>
+                    <tbody>${s.by_lambda.map(l => `
+                        <tr class="click" onclick="wtFiltrar('wtLambda','${wtEsc(l.lambda)}')" title="Filtrar por esta lambda">
+                            <td><strong>${wtEsc(l.lambda_name)}</strong> <span style="color:rgba(15,23,42,0.45)">${wtEsc(l.lambda)}</span></td>
+                            <td class="num">${wtNum(l.total)}</td><td class="num">${wtNum(l.enviado)}</td>
+                            <td class="num" style="${l.fallido ? 'color:#991b1b;font-weight:700' : ''}">${wtNum(l.fallido)}</td>
+                            <td class="num">${wtNum(l.no_enviado)}</td><td class="num">${wtNum(l.sin_traza)}</td>
+                        </tr>`).join('')}</tbody>
+                </table>
+                <div style="padding:8px 12px; font-size:12px; color:rgba(15,23,42,0.55);">
+                    Respuestas de AVL360: ${codigos || 'sin envíos'} · Lectura ${wtEsc(data.meta.read_seconds)} s${data.meta.cache_age_seconds ? ' (caché de ' + Math.round(data.meta.cache_age_seconds) + ' s)' : ''}
+                </div>`;
+
+            const items = data.items || [];
+            document.getElementById('wtTabla').innerHTML = items.length === 0
+                ? '<div class="wt-msg">No hay eventos con esos filtros.</div>'
+                : `<table>
+                    <thead><tr><th>Detectado</th><th>Enviado</th><th>Lambda</th><th>Estado</th><th class="num">HTTP</th>
+                        <th>Manifiesto</th><th class="num">Freight</th><th>Placa</th><th>NIT</th><th>Nivel</th><th>Motivo</th></tr></thead>
+                    <tbody>${items.map((r, i) => `
+                        <tr class="click" onclick="wtDetalle(${i})" title="Ver detalle y payload">
+                            <td>${wtHora(r.detected_at)}</td><td>${wtHora(r.sent_at)}</td>
+                            <td>${wtEsc(r.lambda_name)}<div style="font-size:11px;color:rgba(15,23,42,0.45)">${wtEsc(r.event_type)}</div></td>
+                            <td>${wtBadge(r.status)}</td><td class="num">${wtEsc(r.http_status ?? '')}</td>
+                            <td>${wtEsc(r.manifest)}</td><td class="num">${wtEsc(r.freight_id ?? '')}</td>
+                            <td>${wtEsc(r.plate)}</td><td>${wtEsc(r.tenant_nit)}</td><td>${wtEsc(r.tier_id ?? '')}</td>
+                            <td class="wt-reason">${wtEsc(r.reason ?? '')}</td>
+                        </tr>`).join('')}</tbody>
+                  </table>`;
+
+            const desde = wtEstado.total ? wtEstado.offset + 1 : 0;
+            const hasta = wtEstado.offset + items.length;
+            document.getElementById('wtInfo').textContent =
+                `Mostrando ${wtNum(desde)}–${wtNum(hasta)} de ${wtNum(wtEstado.total)} eventos (${data.date}, hora Colombia)`;
+            document.getElementById('wtPrev').disabled = wtEstado.offset === 0;
+            document.getElementById('wtNext').disabled = !data.meta.has_more;
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+
+        function wtPagina(dir) {
+            const nuevo = Math.max(0, wtEstado.offset + dir * wtEstado.limit);
+            wtCargar(nuevo);
+        }
+
+        async function wtDetalle(i) {
+            const r = wtEstado.ultimo && wtEstado.ultimo.items[i];
+            if (!r) return;
+            const cuerpo = document.getElementById('wtModalCuerpo');
+            cuerpo.innerHTML = '<div class="wt-msg">Cargando…</div>';
+            document.getElementById('wtModal').classList.add('open');
+            try {
+                const params = new URLSearchParams({ pk: r.pk, sk: r.sk });
+                const resp = await fetch(`${API_BASE_URL}/webhook-trace/event?${params.toString()}`);
+                const data = await resp.json();
+                if (!resp.ok) throw new Error((data.detail && data.detail.message) || `HTTP ${resp.status}`);
+                const ev = data.event, w = ev.webhook || {};
+                const filas = [
+                    ['Estado', wtBadge(ev.status)], ['Motivo', wtEsc(ev.reason || '—')],
+                    ['Lambda', wtEsc(`${ev.lambda_name} (${ev.lambda})`)], ['Evento', wtEsc(`${ev.event_type || ''} ${ev.event_name ? '· ' + ev.event_name : ''}`)],
+                    ['Detectado', wtEsc(ev.detected_at)], ['Enviado', wtEsc(w.sent_at || '—')], ['Intento fallido', wtEsc(w.attempted_at || '—')],
+                    ['Código HTTP', wtEsc(w.status_code ?? '—')], ['Error', wtEsc(w.error || '—')],
+                    ['URL', wtEsc(w.url || '—')], ['NIT enviado', wtEsc(w.tenant_nit || ev.tenant_nit || '—')],
+                    ['Secret presente', wtEsc(w.secret_present === undefined || w.secret_present === null ? '—' : (w.secret_present ? 'Sí' : 'No'))],
+                    ['Manifiesto / Freight', wtEsc(`${ev.manifest || ''} / ${ev.freight_id ?? ''}`)], ['Placa', wtEsc(ev.plate)],
+                    ['Nivel', wtEsc(ev.tier_id || '—')], ['Alert ID', wtEsc(ev.alert_id || '—')],
+                    ['PK / SK', wtEsc(`${ev.pk}  ·  ${ev.sk}`)],
+                ];
+                const payload = w.payload ? (typeof w.payload === 'string' ? w.payload : JSON.stringify(w.payload, null, 2)) : null;
+                cuerpo.innerHTML = `
+                    <dl>${filas.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                        <strong style="font-size:14px;">Payload enviado a AVL360${w.payload_truncated ? ' (truncado a 3000 caracteres)' : ''}</strong>
+                        ${payload ? '<button class="wt-btn sec" style="padding:5px 10px;" onclick="wtCopiar()">Copiar</button>' : ''}
+                    </div>
+                    ${payload ? `<pre id="wtPayload">${wtEsc(payload)}</pre>`
+                              : '<div class="wt-msg">Esta lambda no guarda el payload enviado (o el evento no se envió).</div>'}`;
+            } catch (e) {
+                cuerpo.innerHTML = `<div class="wt-msg" style="color:#991b1b;">No se pudo cargar el detalle: ${wtEsc(e.message)}</div>`;
+            }
+        }
+        function wtCerrar() { document.getElementById('wtModal').classList.remove('open'); }
+        function wtCopiar() {
+            const el = document.getElementById('wtPayload');
+            if (el && navigator.clipboard) navigator.clipboard.writeText(el.textContent).catch(() => {});
+        }
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') wtCerrar(); });
+        document.getElementById('wtTexto').addEventListener('keydown', e => { if (e.key === 'Enter') wtCargar(0); });
+        document.getElementById('wtEstado').addEventListener('change', () => wtCargar(0));
+        document.getElementById('wtLambda').addEventListener('change', () => wtCargar(0));
+        document.getElementById('wtFecha').value = wtHoyColombia();
+
+        const _origSwitchTabWebhook = switchTab;
+        switchTab = function(tabName) {
+            _origSwitchTabWebhook(tabName);
+            if (tabName === 'webhook') {
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+                if (!wtEstado.cargado) { wtEstado.cargado = true; wtCargar(0); }
+            }
+        };
     </script>
 
     <!-- Modal de Selección de Checkpoint en Mapa -->
