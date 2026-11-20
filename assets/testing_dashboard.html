@@ -3685,6 +3685,20 @@
                             <div id="tipLockDevices"></div>
                         </div>
 
+                        <!-- Pausas y pernoctaciones del viaje (GET /trips/event-suspensions) -->
+                        <div style="background:white;border-radius:12px;padding:16px;border:1px solid rgba(124,58,237,0.18);">
+                            <div style="font-size:11px;font-weight:700;color:#7c3aed;text-transform:uppercase;
+                                        letter-spacing:0.06em;margin-bottom:10px;display:flex;align-items:center;
+                                        justify-content:space-between;gap:6px;">
+                                <span style="display:flex;align-items:center;gap:6px;">
+                                    <i data-lucide="moon" style="width:14px;height:14px;"></i> Pausas y pernoctaciones
+                                </span>
+                                <span id="tipSuspCount" style="font-size:11px;font-weight:600;color:#7c3aed;
+                                      background:rgba(124,58,237,0.1);padding:2px 8px;border-radius:10px;">0</span>
+                            </div>
+                            <div id="tipSuspensions"></div>
+                        </div>
+
                         <!-- Diagnostico Lambda GPS -->
                         <div style="background:white;border-radius:12px;padding:16px;border:1px solid rgba(6,182,212,0.15);">
                             <div style="font-size:11px;font-weight:700;color:#06b6d4;text-transform:uppercase;
@@ -6859,6 +6873,133 @@
             }).join('');
         }
 
+        // Pausas y pernoctaciones del viaje. AL360 las crea con POST /trips/event-suspensions;
+        // aqui se leen con el GET del mismo endpoint (X-Tenant-NIT + manifiesto + placa), que trae
+        // el estado calculado con la hora actual, quien la autorizo y el historial de cambios.
+        // Las horas llegan en hora Colombia con offset (-05:00).
+        const SUSP_TIPOS   = { PAUSE: 'Pausa', OVERNIGHTSTAY: 'Pernoctación' };
+        const SUSP_ESTADOS = {
+            SCHEDULED: { txt: 'Programada', color: '#2563eb' },
+            ACTIVE:    { txt: 'En curso',   color: '#7c3aed' },
+            FINISHED:  { txt: 'Terminada',  color: '#16a34a' },
+            CANCELLED: { txt: 'Cancelada',  color: '#94a3b8' },
+        };
+        const SUSP_FIN = {
+            END_AT: 'a la hora de fin programada', MANUAL: 'terminada antes por AL360',
+            TRIP_COMPLETED: 'el viaje se completó', TRIP_CLOSED: 'el viaje se cerró',
+        };
+        const SUSP_ACCIONES = {
+            CREATE: 'Creada', UPDATE: 'Modificada', FINISH: 'Terminada', CANCEL: 'Cancelada',
+        };
+
+        function _suspDuracion(ini, fin) {
+            if (!ini || !fin) return '';
+            const min = Math.round((fin - ini) / 60000);
+            if (!(min >= 0)) return '';
+            const h = Math.floor(min / 60), m = min % 60;
+            return h ? (h + ' h' + (m ? ' ' + m + ' min' : '')) : (m + ' min');
+        }
+
+        async function loadTipSuspensions(trip) {
+            const cont  = document.getElementById('tipSuspensions');
+            const count = document.getElementById('tipSuspCount');
+            if (!cont) return;
+            if (!trip || !trip.manifest || !trip.plate || !trip.companyNIT) {
+                if (count) count.textContent = '0';
+                cont.innerHTML = '<div style="font-size:12px;color:#94a3b8;">Sin manifiesto, placa o NIT para consultar.</div>';
+                return;
+            }
+            if (count) count.textContent = '…';
+            cont.innerHTML = '<div style="font-size:12px;color:#94a3b8;">Consultando…</div>';
+            try {
+                const q = new URLSearchParams({ manifest: String(trip.manifest), license_plate: String(trip.plate) });
+                const resp = await fetch(`${API_BASE_URL}/trips/event-suspensions?${q}`,
+                    { headers: { 'X-Tenant-NIT': String(trip.companyNIT) } });
+                if (_tipCurrentTrip !== trip) return;   // el usuario ya abrio otro viaje
+                if (!resp.ok) {
+                    if (count) count.textContent = '-';
+                    cont.innerHTML = '<div style="font-size:12px;color:#ef4444;">No se pudo consultar (HTTP ' + resp.status + ').</div>';
+                    return;
+                }
+                const data = await resp.json();
+                if (_tipCurrentTrip !== trip) return;
+                renderTipSuspensions(data && data.suspensions);
+            } catch (e) {
+                if (_tipCurrentTrip !== trip) return;
+                console.warn('[DASHBOARD] Error consultando pausas/pernoctaciones:', e);
+                if (count) count.textContent = '-';
+                cont.innerHTML = '<div style="font-size:12px;color:#ef4444;">No se pudo consultar las pausas y pernoctaciones.</div>';
+            }
+        }
+
+        function renderTipSuspensions(lista) {
+            const cont  = document.getElementById('tipSuspensions');
+            const count = document.getElementById('tipSuspCount');
+            if (!cont) return;
+            const items = (Array.isArray(lista) ? lista : []).slice()
+                .sort((a, b) => String(b.startAt || '').localeCompare(String(a.startAt || '')));
+            if (count) count.textContent = items.length;
+            if (!items.length) {
+                cont.innerHTML = '<div style="font-size:12px;color:#94a3b8;">Este viaje no tiene pausas ni pernoctaciones registradas.</div>';
+                return;
+            }
+            const ahora = new Date();
+            cont.innerHTML = items.map(s => {
+                const tipo   = SUSP_TIPOS[s.type] || s.type || 'Suspensión';
+                const est    = SUSP_ESTADOS[s.status] || { txt: s.status || '-', color: '#64748b' };
+                const ini    = parseHoraCol(s.startAt);
+                const fin    = parseHoraCol(s.endAt);
+                const iniTxt = ini ? fmtFechaHoraCol(ini) : '-';
+                const finTxt = fin ? fmtFechaHoraCol(fin) : '-';
+                const dur    = _suspDuracion(ini, fin);
+
+                let extra = '';
+                if (s.status === 'ACTIVE' && fin) {
+                    extra = fin > ahora
+                        ? 'Termina en ' + _suspDuracion(ahora, fin)
+                        : 'Fin programado ya pasó';
+                } else if (s.status === 'SCHEDULED' && ini && ini > ahora) {
+                    extra = 'Empieza en ' + _suspDuracion(ahora, ini);
+                } else if (s.status === 'FINISHED' && s.finishReason) {
+                    extra = 'Terminó: ' + (SUSP_FIN[s.finishReason] || s.finishReason);
+                }
+
+                const loc = s.location && s.location.latitude != null
+                    ? `${Number(s.location.latitude).toFixed(5)}, ${Number(s.location.longitude).toFixed(5)}` +
+                      (s.location.radius_m ? ` · radio ${s.location.radius_m} m` : '')
+                    : null;
+
+                const hist = Array.isArray(s.history) ? s.history : [];
+                const histHtml = hist.length ? `
+                    <details style="margin-top:4px;">
+                        <summary style="cursor:pointer;color:#7c3aed;font-size:11px;">Historial (${hist.length})</summary>
+                        ${hist.map(h => `<div style="color:#64748b;font-size:11px;padding-left:8px;">
+                            v${_escHtml(h.version != null ? h.version : '-')} · ${_escHtml(SUSP_ACCIONES[h.action] || h.action || '-')}
+                            · ${_escHtml(fmtFechaHoraCol(parseHoraCol(h.at)) || '-')} · ${_escHtml(h.by || '-')}
+                            ${h.changeReason ? ' — ' + _escHtml(h.changeReason) : ''}</div>`).join('')}
+                    </details>` : '';
+
+                return `<div style="padding:10px 12px;border-radius:10px;background:rgba(124,58,237,0.04);
+                                    border:1px solid ${s.status === 'ACTIVE' ? est.color + '66' : 'rgba(124,58,237,0.12)'};
+                                    margin-bottom:8px;font-size:12px;line-height:1.7;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+                        <span style="font-size:13px;font-weight:600;color:#0f172a;">${_escHtml(tipo)}
+                            ${s.externalId ? `<span style="font-weight:500;color:#64748b;"> · orden ${_escHtml(s.externalId)}</span>` : ''}</span>
+                        <span style="font-size:11px;font-weight:600;color:${est.color};background:${est.color}1a;
+                              padding:2px 8px;border-radius:10px;white-space:nowrap;flex-shrink:0;">● ${_escHtml(est.txt)}</span>
+                    </div>
+                    <div style="color:#475569;">Inicio: <b>${_escHtml(iniTxt)}</b></div>
+                    <div style="color:#475569;">Fin: <b>${_escHtml(finTxt)}</b>${dur ? ` <span style="color:#94a3b8;">(${_escHtml(dur)})</span>` : ''}</div>
+                    ${extra ? `<div style="color:${est.color};font-weight:600;">${_escHtml(extra)}</div>` : ''}
+                    ${s.reason ? `<div style="color:#475569;">Motivo: ${_escHtml(s.reason)}</div>` : ''}
+                    ${loc ? `<div style="color:#475569;">Ubicación: ${_escHtml(loc)}</div>` : ''}
+                    <div style="color:#94a3b8;">Autorizó: ${_escHtml(s.createdBy || '-')} · ${_escHtml(s.createdAt ? fmtTs(s.createdAt) : '-')}</div>
+                    ${s.updatedAt ? `<div style="color:#94a3b8;">Última modificación: ${_escHtml(s.updatedBy || '-')} · ${_escHtml(fmtTs(s.updatedAt))}</div>` : ''}
+                    ${histHtml}
+                </div>`;
+            }).join('');
+        }
+
         function populateTripInfoPanel(trip) {
             _tipCurrentTrip = trip;
 
@@ -6954,6 +7095,9 @@
 
             // Candados satelitales
             renderTipLockDevices(trip.lockDevices || []);
+
+            // Pausas y pernoctaciones (se consultan aparte; no vienen en by-freight)
+            loadTipSuspensions(trip);
 
             // Origen y Destino
             const origin = trip.origin || {};
