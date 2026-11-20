@@ -4016,6 +4016,10 @@
                             <input type="checkbox" id="chkLayerDeviation" checked onchange="onToggleAlertType('RouteDeviation')" style="width:15px;height:15px;cursor:pointer;accent-color:#0ea5e9;">
                             <span style="width:18px;height:18px;border-radius:50%;background:#64748b;display:inline-flex;align-items:center;justify-content:center;color:white;font-weight:900;font-size:12px;line-height:1;">↪</span> Desvío de ruta
                         </label>
+                        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:rgba(15,23,42,0.8);" title="Movimiento no autorizado y GPS sin reportar durante pausas y pernoctaciones">
+                            <input type="checkbox" id="chkLayerSuspension" checked onchange="onToggleAlertType('SUSPENSION')" style="width:15px;height:15px;cursor:pointer;accent-color:#7c3aed;">
+                            <span style="width:18px;height:18px;border-radius:50%;background:#64748b;display:inline-flex;align-items:center;justify-content:center;color:white;font-weight:900;font-size:12px;line-height:1;">☾</span> Pausa / pernoctación
+                        </label>
                     </div>
 
                     <div id="mapContainer" style="height: 600px; border-radius: 16px; overflow: hidden; border: 1px solid rgba(6, 182, 212, 0.2); box-shadow: 0 8px 32px rgba(6, 182, 212, 0.15);"></div>
@@ -9410,7 +9414,7 @@
                 // Titulo y unidad segun el tipo real del evento (no siempre es velocidad)
                 var titulo = formatAlertType(alert.EventType) || alert.EventName || 'Alerta';
                 var unidadAlerta = alert.Unit || (alert.EventType === 'RouteDeviation' ? 'metros'
-                    : alert.EventType === 'Stop' ? 'min' : 'km/h');
+                    : (alert.EventType === 'Stop' || alert.EventType === 'OVERNIGHT_GPS_LOST') ? 'min' : 'km/h');
                 var valor = alert.CurrentValue !== undefined
                     ? alert.CurrentValue + ' ' + unidadAlerta : '';
                 var rangoTier = (alert.TierThresholdMin !== undefined && alert.TierThresholdMax !== undefined)
@@ -9569,6 +9573,8 @@
                 case 'Speeding':       return '»'; // » exceso de velocidad
                 case 'Stop':           return '■'; // ■ detencion
                 case 'RouteDeviation': return '↪'; // ↪ desvio de ruta
+                case 'UNAUTHORIZED_MOVEMENT': return '☾'; // ☾ movimiento en pausa/pernoctacion
+                case 'OVERNIGHT_GPS_LOST':    return '?'; // ? GPS sin reportar en pernoctacion
                 default:               return '!';
             }
         }
@@ -12187,6 +12193,8 @@
                 'Stop':                  'Vehículo detenido',
                 'DETENTION':             'Vehículo detenido',
                 'RouteDeviation':        'Desvío de ruta',
+                'UNAUTHORIZED_MOVEMENT': 'Movimiento no autorizado (pausa/pernoctación)',
+                'OVERNIGHT_GPS_LOST':    'GPS sin reportar en pernoctación',
                 'CHECKPOINT':            'Paso por punto',
                 'SPEED_VIOLATION':       'Exceso de velocidad',
                 'GEOFENCE_VIOLATION':    'Violación de geocerca',
@@ -13011,7 +13019,10 @@
         // ==================== CONTROL DE CAPAS (barra de checkboxes sobre el mapa) ====================
         // Visibilidad por tipo de alerta. Se reaplica tras cada redibujado de alertas
         // (drawAlerts / drawAlertMarkersOnMap) para respetar el estado de los checkboxes.
-        const mapAlertTypeVisible = { Speeding: true, Stop: true, RouteDeviation: true };
+        const mapAlertTypeVisible = { Speeding: true, Stop: true, RouteDeviation: true,
+                                      UNAUTHORIZED_MOVEMENT: true, OVERNIGHT_GPS_LOST: true };
+        // Tipos que controla el checkbox "Pausa / pernoctacion" (EventSuspension_BRule)
+        const TIPOS_SUSPENSION = ['UNAUTHORIZED_MOVEMENT', 'OVERNIGHT_GPS_LOST'];
 
         // Muestra u oculta los marcadores de alerta segun su tipo (marker._alertType).
         // Un tipo que no este en la barra se muestra siempre.
@@ -13031,6 +13042,12 @@
 
         // Checkbox de un tipo de alerta (Speeding / Stop / RouteDeviation).
         function onToggleAlertType(tipo) {
+            if (tipo === 'SUSPENSION') {
+                const cbS = document.getElementById('chkLayerSuspension');
+                TIPOS_SUSPENSION.forEach(t => { mapAlertTypeVisible[t] = cbS ? cbS.checked : true; });
+                applyAlertTypeVisibility();
+                return;
+            }
             const idMap = { Speeding: 'chkLayerSpeeding', Stop: 'chkLayerStop', RouteDeviation: 'chkLayerDeviation' };
             const cb = document.getElementById(idMap[tipo]);
             mapAlertTypeVisible[tipo] = cb ? cb.checked : true;
